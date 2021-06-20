@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="shortcut icon" href="favicon.ico">
+<link rel="icon" type="image/vnd.microsoft.icon" href="favicon.ico">
+<title>
+Jovial Aisleriot - Flutter Port of GNOME Solitaire
+</title>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="keywords" content="solitaire, freecell, aisleriot">
+<meta name="description" content="Flutter port of GNOME Solitaire games including Freecell">
+<meta property="og:title" content="Aisleriot" />
+<meta property="og:image" content="images/screen_shot.png" />
+<style>
+p {font-size: 20px; margin-left: 4%; margin-right: 5%}
+li {font-size: 20px; margin-left: 4%; margin-right: 10%; margin-bottom: 5px}
+li:last-child { margin-bottom: 0px; }
+blockquote {margin-left: 10%; margin-right: 12%}
+</style>
+</head>
+<body style="background-color: #ffffff">
+<p style="text-align: center; font-size: x-large; font-weight: bold;">
+Jovial Aisleriot - A Port of GNOME Solitaire Games to Flutter
+
+<a href="https://aisleriot.jovial.com/run/index.html">
+<img src="screen_shot.png" alt="Screenshot" style="display: block; margin-left: auto; margin-right: auto; max-width:95%;">
+</a>
+<p>&nbsp;
+<p>Jovial Aisleriot will be a port of some of the GNOME Solitaire games
+to Flutter, starting with Freecell.  Honestly, I mostly wrote it because
+when I got a new Mac to replace my Linux machine, I couldn't find a good,
+free version of Freecell.  Porting Aisleriot was a good way to keep busy
+while under covid lockdown.  You can also
+<a href="https://aisleriot.jovial.com/run/index.html">run it on
+the web</a>.
+<p>
+I snagged the SVG card assets from the GNOME program, but discovered to my
+surprise that there wasn't a good SVG renderer for Flutter (or at least not
+one that works with these card assets).  So I did what any normal person would
+do, and <a href="https://github.com/zathras/jovial_svg">wrote one</a>, and
+<a href="https://pub.dev/packages/jovial_svg">published it to
+<span style="font-family: 'Courier New'">pub.dev</span></a>.
+
+<p>
+<p style="float: right; align-items: center; font-style: italic;">
+<a href="http://en.wikipedia.org/wiki/Vi"><img alt="*" src="vi.powered.gif"></a>
+<p style="float: right; align-items: center; font-style: italic;">
+<a href="https://bill.jovial.com/">Bill Foote</a>&nbsp;&nbsp;&nbsp;&nbsp;
+</body>
+</html>
