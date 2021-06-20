@@ -35,6 +35,34 @@ while under covid lockdown.  You can also
 the web</a>.  Some performances statistics are collected; these can be found
 under the help menu.
 <p>
+A few performance observations:
+<ul>
+    <li>The JavaScript runtime gives worse performance than the native runtime,
+        as one would expect, but not by as big a factor as I would have guessed.
+        It's maybe about 1/3rd the speed?
+    <li>On a very old, slow tablet (a Samsung T700), performance of the code
+        written in Dart is good.  For example, the "Guyenne Classic" deck is
+        a demanding 3 MB SVG.  With that deck, on the Samsung the time spent
+        in a typical paint call is around 40 ms.  The overall animation
+        speed, on the other hand, makes the program unusable - I would guess
+        this is from the graphics rendering speed, which is intrinsic to the
+        platform and the asset.  Switching to a card deck with embedded images
+        makes the animation speed acceptable in the Android app, even on a 
+        slow device like this.
+    <li>On a less horrible, but still pretty slow Galaxy Note 5, the
+        non-bitmapped Anglo deck is usable, but the bitmapped version is
+        noticable better.  Again, the bottleneck isn't in the dart code - 
+        time per frame spent in paint was around 20 ms, so the bottleneck
+        lies elsewhere.
+    <li>On the older devices, things like Flutter's built-in dropdown
+        and popup menus are also pretty laggy, so maybe it is time for me
+        to get a newer phone :-)
+    <li>Performance on modern hardware is great - no noticable lag.
+    <li>In general, I could not find a case where the part written in 
+        Dart (both this app and the `jovial_svg` library) is a significant 
+        bottleneck.
+</ul>
+<p>
 I snagged the SVG card assets from the GNOME program, but discovered to my
 surprise that there wasn't an SVG renderer for Flutter with complete enough
 support for SVG to render these card assets.  So I did what any normal 

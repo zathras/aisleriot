@@ -3,7 +3,7 @@ description: Flutter port of GNOME Aisleriot solitaire games, including Freecell
 
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 0.0.1+1
 
 environment:
   sdk: ">=2.13.0 <3.0.0"
