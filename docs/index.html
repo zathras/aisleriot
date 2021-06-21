@@ -57,6 +57,13 @@ A few performance observations:
     <li>On the older devices, things like Flutter's built-in dropdown
         and popup menus are also pretty laggy, so maybe it is time for me
         to get a newer phone :-)
+        <ul>
+            <li>I guess Flutter isn't doing save-unders.
+            <li>From this, it appears worthwhile to cache a pre-rendered
+                image in painters, e.g. 
+                <a href="https://github.com/zathras/jovial_svg/issues/3">in 
+                    jovial_svg's widget</a>.
+        </ul>
     <li>Performance on modern hardware is great - no noticable lag.
     <li>In general, I could not find a case where the part written in 
         Dart (both this app and the `jovial_svg` library) is a significant 
