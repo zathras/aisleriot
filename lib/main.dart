@@ -28,6 +28,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:jovial_svg/jovial_svg.dart';
 import 'package:pedantic/pedantic.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'controller.dart';
@@ -39,7 +40,49 @@ void main() async {
   LicenseRegistry.addLicense(Assets._getLicenses);
 
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(MainWindow(await Assets.getAssets(rootBundle)));
+  final settings = await Settings.read();
+  runApp(MainWindow(await Assets.getAssets(rootBundle, settings), settings));
+}
+
+class Settings {
+  String deckAsset = 'guyenne-classic.si';
+  bool cacheCardImages = true;
+
+  static Future<Settings> read() async {
+    final storage = await SharedPreferences.getInstance();
+    String? js = storage.getString('settings');
+    final r = Settings();
+    if (js != null) {
+      try {
+        r.decodeJson(json.decode(js) as Map<String, dynamic>);
+      } catch (e) {
+        print(e);
+      }
+    }
+    return r;
+  }
+
+  Future<void> write() async {
+    final storage = await SharedPreferences.getInstance();
+    String js = json.encode(toJson());
+    await storage.setString('settings', js);
+  }
+
+  ///
+  /// Convert to a data structure that can be serialized as JSON.
+  ///
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'cacheCardImages': cacheCardImages,
+        'deckAsset': deckAsset
+      };
+
+  ///
+  /// Convert from a data structure that comes from JSON
+  ///
+  void decodeJson(Map<String, dynamic> json) {
+    cacheCardImages = (json['cacheCardImages'] as bool?) ?? cacheCardImages;
+    deckAsset = (json['deckAsset'] as String?) ?? deckAsset;
+  }
 }
 
 class Assets {
@@ -57,16 +100,16 @@ class Assets {
       List<Deck> decks)
       : decks = List.unmodifiable(decks);
 
-  static Future<Assets> getAssets(AssetBundle b) async {
+  static Future<Assets> getAssets(AssetBundle b, Settings s) async {
     final manifestS =
         await b.loadString('assets/cards/manifest.json', cache: false);
     final manifestU = jsonDecode(manifestS) as List<dynamic>;
-    Deck? guyenne;
+    Deck? first;
     final manifest = List<Deck>.generate(manifestU.length, (i) {
       final du = manifestU[i] as List<dynamic>;
       final d = Deck(du[0] as String, du[1] as String);
-      if (d.assetKey == 'guyenne-classic.si') {
-        guyenne = d;
+      if (d.assetKey == s.deckAsset) {
+        first = d;
       }
       return d;
     });
@@ -74,8 +117,8 @@ class Assets {
         rootBundle, 'assets/jupiter.si',
         currentColor: Colors.indigo.shade100);
     await icon.prepareImages(); // There aren't any, but it's totally harmless
-    final deck = guyenne ?? manifest[0];
-    final painter = await deck.makePainter(b);
+    final deck = first ?? manifest[0];
+    final painter = await deck.makePainter(b, cacheCards: s.cacheCardImages);
     return Assets._p(b, icon, painter, deck, manifest);
   }
 
@@ -90,25 +133,28 @@ class Deck {
 
   Deck(this.deckName, this.assetKey);
 
-  Future<GamePainter> makePainter(AssetBundle b) async =>
-      GamePainter.create(b, 'assets/cards/$assetKey');
+  Future<GamePainter> makePainter(AssetBundle b,
+          {required bool cacheCards}) async =>
+      GamePainter.create(b, 'assets/cards/$assetKey', cacheCards: cacheCards);
 }
 
 class MainWindow extends StatefulWidget {
   final Assets assets;
+  final Settings initialSettings;
 
-  MainWindow(Assets assets) : assets = assets;
+  MainWindow(Assets assets, this.initialSettings) : assets = assets;
 
   @override
-  _MainWindowState createState() =>
-      _MainWindowState(assets.initialDeck, assets.initialPainter);
+  _MainWindowState createState() => _MainWindowState(
+      assets.initialDeck, assets.initialPainter, initialSettings);
 }
 
 class _MainWindowState extends State<MainWindow> {
   Deck lastDeckSelected;
   GamePainter painter;
+  Settings settings;
 
-  _MainWindowState(this.lastDeckSelected, this.painter);
+  _MainWindowState(this.lastDeckSelected, this.painter, this.settings);
 
   @override
   Widget build(BuildContext context) {
@@ -152,9 +198,13 @@ class _MainWindowState extends State<MainWindow> {
                         items: widget.assets.decks
                             .map((v) => DropdownMenuItem(
                                 value: v, child: Text(v.deckName)))
-                            .toList())
+                            .toList()),
                   ],
                 )),
+            CheckedPopupMenuItem(
+                checked: settings.cacheCardImages,
+                value: _changeCacheCardImages,
+                child: const Text('Cache Card Images')),
             PopupMenuItem(
                 value: () {},
                 child:
@@ -163,12 +213,26 @@ class _MainWindowState extends State<MainWindow> {
         },
       );
 
+  void _changeCacheCardImages() {
+    setState(() {
+      settings.cacheCardImages = !settings.cacheCardImages;
+      unawaited(settings.write());
+      painter = painter.withNewCacheCards(settings.cacheCardImages);
+    });
+  }
+
   void _changeDeck(BuildContext context, Deck? newDeck) {
     if (newDeck != null) {
       setState(() {
         lastDeckSelected = newDeck;
+        settings.deckAsset = newDeck.assetKey;
         unawaited(() async {
-          final p = await newDeck.makePainter(widget.assets.bundle);
+          await settings.write();
+          // A slight delay so Flutter has a chance to dismiss the
+          // dropdown on slow platforms.
+          await Future<void>.delayed(Duration(milliseconds: 50));
+          final p = await newDeck.makePainter(widget.assets.bundle,
+              cacheCards: settings.cacheCardImages);
           setState(() {
             painter = p;
             // The old painter gets disposed down in GameState

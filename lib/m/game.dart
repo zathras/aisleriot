@@ -125,7 +125,7 @@ class Card {
 
   Card(this.value, this.suit);
 
-  /// An index value that can be used to efficiently map from cards
+  /// A zero-based index value that can be used for mappings.
   int get index => suit.row * 13 + value - 1;
 
   @override

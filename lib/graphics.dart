@@ -21,7 +21,7 @@ import 'dart:collection';
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
-import 'package:flutter/material.dart' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' as ui;
 import 'package:jovial_svg/jovial_svg.dart';
 
@@ -136,25 +136,35 @@ class CircularBuffer<T> extends ListMixin<T> {
   }
 }
 
+class _GamePainterCards {
+  int references = 1;
+  final List<List<ScalableImage>> im;
+
+  _GamePainterCards(this.im);
+}
+
 class GamePainter {
-  final List<List<ScalableImage>> _cards;
+  final _GamePainterCards _cards;
   // _cards[card.suit.value][card.value-1]
   final _BoardLayout layout;
+  final _CardPainter _cardPainter;
 
   static final loadMessages = CircularBuffer(List.filled(5, ''));
 
   /// Paint times, in seconds
   final paintTimes = CircularBuffer(Float64List(100));
 
-  GamePainter._p(List<List<ScalableImage>> cards)
+  GamePainter._p(_GamePainterCards cards, {required bool cacheCards})
       : _cards = cards,
-        layout = _BoardLayout(cards.first.first.viewport);
+        layout = _BoardLayout(cards.im.first.first.viewport),
+        _cardPainter = cacheCards ? _CachingCardPainter() : _CardPainter();
 
   ///
   /// Create a GamePainter that is prepared.  Callee is responsible for
   /// calling [dispose] when finished with this painter.
   ///
-  static Future<GamePainter> create(ui.AssetBundle b, String assetKey) async {
+  static Future<GamePainter> create(ui.AssetBundle b, String assetKey,
+      {required bool cacheCards}) async {
     final data = await b.load(assetKey);
     final dataL =
         Uint8List.view(data.buffer, data.offsetInBytes, data.lengthInBytes);
@@ -180,13 +190,29 @@ class GamePainter {
         await c.prepareImages();
       }
     }
-    return GamePainter._p(cards);
+    return GamePainter._p(_GamePainterCards(cards), cacheCards: cacheCards);
+  }
+
+  ///
+  /// Return a copy of this GamePainter with the cacheCards setting changed.
+  /// The new GamePainter will be prepared.  The caller is responsible for
+  /// calling `dispose` on this GamePainter and, eventually, the new one.
+  ///
+  GamePainter withNewCacheCards(bool v) {
+    final r = GamePainter._p(_cards, cacheCards: v);
+    _cards.references++;
+    return r;
   }
 
   void dispose() {
-    for (final row in _cards) {
-      for (final c in row) {
-        c.unprepareImages();
+    _cardPainter.dispose();
+    _cards.references--;
+    assert(_cards.references >= 0);
+    if (_cards.references == 0) {
+      for (final row in _cards.im) {
+        for (final c in row) {
+          c.unprepareImages();
+        }
       }
     }
   }
@@ -212,7 +238,7 @@ class GamePainter {
       }
       if (cardNumber != null) {
         final card = slot.cards[cardNumber];
-        final ScalableImage im = _cards[card.suit.row][card.value - 1];
+        final ScalableImage im = _cards.im[card.suit.row][card.value - 1];
         final dragCard = controller.drag?.card;
         if (dragCard?.cardNumber == cardNumber && dragCard?.slot == slot) {
           dragging = controller.drag;
@@ -220,20 +246,13 @@ class GamePainter {
         final d = dragging;
         if (d != null && d.card.slot == slot) {
           afterCards.add(() {
-            c.save();
-            c.translate(space.left + d.current.dx - d.start.dx,
-                space.top + d.current.dy - d.start.dy);
-            c.scale(space.width / im.viewport.width);
-            im.paint(c);
-            c.restore();
+            final dx = d.current.dx - d.start.dx;
+            final dy = d.current.dy - d.start.dy;
+            _cardPainter.paint(c, dx, dy, space, card, im);
           });
         } else {
           dragging = null;
-          c.save();
-          c.translate(space.left, space.top);
-          c.scale(space.width / im.viewport.width);
-          im.paint(c);
-          c.restore();
+          _cardPainter.paint(c, 0, 0, space, card, im);
         }
       }
     }
@@ -245,6 +264,105 @@ class GamePainter {
     }
     sw.stop();
     paintTimes.add(sw.elapsedTicks / sw.frequency);
+  }
+}
+
+class _CardPainter {
+  @mustCallSuper
+  void dispose() {}
+
+  void paint(ui.Canvas c, double dx, double dy, ui.Rect space, Card card,
+      ScalableImage im) {
+    c.save();
+    c.translate(space.left + dx, space.top + dy);
+    c.scale(space.width / im.viewport.width);
+    im.paint(c);
+    c.restore();
+  }
+}
+
+class _CachingCardPainter extends _CardPainter {
+  final _cards = List<_CardCacheEntry>.generate(52, (_) => _CardCacheEntry());
+  double _width = -1;
+  double _height = -1;
+  bool _first = true;
+
+  @override
+  void paint(ui.Canvas c, double dx, double dy, ui.Rect space, Card card,
+      ScalableImage im) {
+    const double epsilon = 1 / 000000;
+    // One one-hundred-thousandth - makes up for rect roundoff error, since it
+    // stores corners, and not the width directly.
+    if (_width <= 0 ||
+        _height <= 0 ||
+        (space.width - _width).abs() > _width * epsilon ||
+        (space.height - _height).abs() > _height * epsilon) {
+      if (_first) {
+        _first = false;
+      } else {
+        for (int i = 0; i < _cards.length; i++) {
+          _cards[i].dispose();
+          _cards[i] = _CardCacheEntry();
+        }
+      }
+      _width = space.width;
+      _height = space.height;
+    }
+    final entry = _cards[card.index];
+    final cachedImage = entry.image;
+    if (cachedImage != null) {
+      final p = ui.Paint();
+      c.drawImage(cachedImage, ui.Offset(space.left + dx, space.top + dy), p);
+      entry.picture?.dispose();
+      entry.picture = null;
+      return;
+    }
+    final picture = entry.picture ?? entry.start(space, im);
+    c.translate(space.left + dx, space.top + dy);
+    c.drawPicture(picture);
+    c.translate(-space.left - dx, -space.top - dy);
+    return;
+  }
+
+  @override
+  void dispose() {
+    for (final c in _cards) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+}
+
+class _CardCacheEntry {
+  ui.Image? image;
+  ui.Picture? picture;
+  bool disposed = false;
+
+  ui.Picture start(ui.Rect space, ScalableImage im) {
+    final p = picture;
+    if (p != null) {
+      return p;
+    }
+    final rec = ui.PictureRecorder();
+    final c = ui.Canvas(rec);
+    c.scale(space.width / im.viewport.width);
+    im.paint(c);
+    final fp = picture = rec.endRecording();
+    () async {
+      final im = await fp.toImage(space.width.ceil(), space.height.ceil());
+      if (disposed) {
+        im.dispose(); // Too late
+      } else {
+        image = im;
+      }
+    }();
+    return fp;
+  }
+
+  void dispose() {
+    disposed = true;
+    image?.dispose();
+    picture?.dispose();
   }
 }
 

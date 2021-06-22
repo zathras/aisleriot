@@ -124,10 +124,10 @@ packages:
   jovial_svg:
     dependency: "direct main"
     description:
-      path: "/Users/billf/github/jovial_svg"
-      relative: false
-    source: path
-    version: "1.0.5-upcoming"
+      name: jovial_svg
+      url: "https://pub.dartlang.org"
+    source: hosted
+    version: "1.0.5"
   js:
     dependency: transitive
     description:
