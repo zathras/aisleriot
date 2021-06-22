@@ -228,8 +228,9 @@ class _MainWindowState extends State<MainWindow> {
         settings.deckAsset = newDeck.assetKey;
         unawaited(() async {
           await settings.write();
-          // A slight delay so Flutter has a chance to dismiss the
-          // dropdown on slow platforms.
+          // A slight delay so Flutter has a chance to at least start
+          // dismissing the dropdown on slow platforms.  I miss having
+          // thread priorities :-)
           await Future<void>.delayed(Duration(milliseconds: 50));
           final p = await newDeck.makePainter(widget.assets.bundle,
               cacheCards: settings.cacheCardImages);
