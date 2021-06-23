@@ -91,13 +91,11 @@ class Assets {
   /// The jupiter image, used as an appliation icon
   final ScalableImage icon;
 
-  final GamePainter initialPainter;
   final Deck initialDeck;
 
   List<Deck> decks;
 
-  Assets._p(this.bundle, this.icon, this.initialPainter, this.initialDeck,
-      List<Deck> decks)
+  Assets._p(this.bundle, this.icon, this.initialDeck, List<Deck> decks)
       : decks = List.unmodifiable(decks);
 
   static Future<Assets> getAssets(AssetBundle b, Settings s) async {
@@ -118,8 +116,7 @@ class Assets {
         currentColor: Colors.indigo.shade100);
     await icon.prepareImages(); // There aren't any, but it's totally harmless
     final deck = first ?? manifest[0];
-    final painter = await deck.makePainter(b, cacheCards: s.cacheCardImages);
-    return Assets._p(b, icon, painter, deck, manifest);
+    return Assets._p(b, icon, deck, manifest);
   }
 
   static Stream<LicenseEntry> _getLicenses() async* {
@@ -145,19 +142,39 @@ class MainWindow extends StatefulWidget {
   MainWindow(Assets assets, this.initialSettings) : assets = assets;
 
   @override
-  _MainWindowState createState() => _MainWindowState(
-      assets.initialDeck, assets.initialPainter, initialSettings);
+  _MainWindowState createState() =>
+      _MainWindowState(assets.initialDeck, initialSettings);
 }
 
 class _MainWindowState extends State<MainWindow> {
   Deck lastDeckSelected;
-  GamePainter painter;
+  GamePainter? painter;
   Settings settings;
+  bool _first = true;
 
-  _MainWindowState(this.lastDeckSelected, this.painter, this.settings);
+  _MainWindowState(this.lastDeckSelected, this.settings);
 
   @override
   Widget build(BuildContext context) {
+    if (_first) {
+      _first = false;
+      unawaited(() async {
+        final cc = settings.cacheCardImages;
+        await Future<void>.delayed(Duration(milliseconds: 40));
+        GamePainter p = await lastDeckSelected.makePainter(widget.assets.bundle,
+            cacheCards: cc);
+        if (settings.cacheCardImages != cc) {
+          final p2 = p.withNewCacheCards(settings.cacheCardImages);
+          p.dispose();
+          p = p2;
+        }
+        ;
+        setState(() {
+          painter = p;
+        });
+      }());
+    }
+    final p = painter;
     return MaterialApp(
         title: 'Jovial Aisleriot',
         home: Material(
@@ -166,14 +183,23 @@ class _MainWindowState extends State<MainWindow> {
             type: MaterialType.transparency,
             child: Stack(
               children: [
-                GameWidget(widget.assets, painter),
-                Padding(
-                    padding: EdgeInsets.fromLTRB(0, 5, 0, 0),
-                    child: Align(
+                (p != null)
+                    ? GameWidget(widget.assets, p)
+                    : Container(
+                        color: GamePainter.background,
+                      ),
+                    Align(
                         alignment: Alignment.topLeft,
+                        child:
+                        Padding(
+                            padding: EdgeInsets.fromLTRB(5, 10, 0, 0),
                         child: ScalableImageWidget(
                             si: widget.assets.icon, scale: 0.08))),
-                Align(alignment: Alignment.topRight, child: _buildMenu(context))
+                Align(alignment: Alignment.topRight, child:
+                Padding(
+                    padding: EdgeInsets.fromLTRB(0, 5, 5, 0),
+                    child:
+                    _buildMenu(context)))
               ],
             )));
   }
@@ -208,7 +234,7 @@ class _MainWindowState extends State<MainWindow> {
             PopupMenuItem(
                 value: () {},
                 child:
-                    _HelpMenu('Help', widget.assets.icon, painter.paintTimes))
+                    _HelpMenu('Help', widget.assets.icon, painter?.paintTimes))
           ];
         },
       );
@@ -217,7 +243,7 @@ class _MainWindowState extends State<MainWindow> {
     setState(() {
       settings.cacheCardImages = !settings.cacheCardImages;
       unawaited(settings.write());
-      painter = painter.withNewCacheCards(settings.cacheCardImages);
+      painter = painter?.withNewCacheCards(settings.cacheCardImages);
     });
   }
 
@@ -248,7 +274,7 @@ class _MainWindowState extends State<MainWindow> {
 class _HelpMenu extends StatelessWidget {
   final String title;
   final ScalableImage icon;
-  final List<double> paintTimes;
+  final List<double>? paintTimes;
 
   _HelpMenu(this.title, this.icon, this.paintTimes);
 
@@ -328,9 +354,9 @@ Widget _showNonWarranty(BuildContext context) => AlertDialog(
               child: Text('OK'))
         ]);
 
-Widget _showPerformance(BuildContext context, List<double> paintTimes) {
+Widget _showPerformance(BuildContext context, List<double>? paintTimes) {
   final String histogram;
-  if (paintTimes.isEmpty) {
+  if (paintTimes == null || paintTimes.isEmpty) {
     histogram = '';
   } else {
     paintTimes.sort();

@@ -218,30 +218,32 @@ class GamePainter {
   }
 
   static const ui.Color background = ui.Color(0xff004c0e);
+  static const maxAspectRatio = 1.5;
 
   /// Aspect ratio of a card, taken from guyenne-classic.  It's close enough
   /// for the other decks.
-  static const cardAspectRatio = 123 / 79;
   static final blankCardPaint = ui.Paint()..color = ui.Color(0x40ffffff);
 
   void paint(ui.Canvas c, ui.Size size, GameController controller) {
+    if (size.width / size.height > maxAspectRatio) {
+      final s = ui.Size(size.height * maxAspectRatio, size.height);
+      c.translate((size.width - s.width) / 2, 0);
+      size = s;
+    }
     Stopwatch sw = Stopwatch()..start();
     Drag? dragging;
     final afterCards = List<void Function()>.empty(growable: true);
-    void paintCardSpace(SlotWithCards slot, int? cardNumber, ui.Rect space) {
-      if (cardNumber == null || cardNumber == 0) {
-        final double radius = space.width / 15;
-        c.drawRRect(
-            ui.RRect.fromRectXY(
-                space.deflate(space.width / 50), radius, radius),
-            blankCardPaint);
-      }
-      if (cardNumber != null) {
+    void paintCardSpace(SlotWithCards slot, int? cardNumber, ui.Rect space, bool showHidden) {
+      if (cardNumber == null) {
+        showHidden = true;
+      } else {
         final card = slot.cards[cardNumber];
         final ScalableImage im = _cards.im[card.suit.row][card.value - 1];
         final dragCard = controller.drag?.card;
         if (dragCard?.cardNumber == cardNumber && dragCard?.slot == slot) {
           dragging = controller.drag;
+        } else {
+          showHidden = false;
         }
         final d = dragging;
         if (d != null && d.card.slot == slot) {
@@ -252,6 +254,19 @@ class GamePainter {
           });
         } else {
           dragging = null;
+          _cardPainter.paint(c, 0, 0, space, card, im);
+        }
+      }
+      if (showHidden) {
+        if (cardNumber == null || cardNumber == 0) {
+          final double radius = space.width / 15;
+          c.drawRRect(
+              ui.RRect.fromRectXY(
+                  space.deflate(space.width / 50), radius, radius),
+              blankCardPaint);
+        } else {
+          final card = slot.cards[cardNumber - 1];
+          final ScalableImage im = _cards.im[card.suit.row][card.value - 1];
           _cardPainter.paint(c, 0, 0, space, card, im);
         }
       }
@@ -290,8 +305,8 @@ class _CachingCardPainter extends _CardPainter {
   @override
   void paint(ui.Canvas c, double dx, double dy, ui.Rect space, Card card,
       ScalableImage im) {
-    const double epsilon = 1 / 000000;
-    // One one-hundred-thousandth - makes up for rect roundoff error, since it
+    const double epsilon = 1 / 10000000;
+    // One millionth - makes up for rect roundoff error, since it
     // stores corners, and not the width directly.
     if (_width <= 0 ||
         _height <= 0 ||
@@ -374,19 +389,53 @@ class CardFinder {
   FoundCard? find(ui.Offset pos, ui.Size size, GameController controller) {
     SlotWithCards? foundSlot;
     int? foundCardNumber;
+    ui.Rect? area;
     layout.visitCards(size, controller,
-        (SlotWithCards slot, int? cardNumber, ui.Rect space) {
+        (SlotWithCards slot, int? cardNumber, ui.Rect space, _) {
       if (space.contains(pos)) {
         foundSlot = slot;
         foundCardNumber = cardNumber;
+        area = space;
+      }
+      if (foundSlot == slot) {
+        final a = area;
+        if (a != null) {
+          area = a.expandToInclude(space);
+        } else {
+          area = space;
+        }
       }
     });
-    // Now we have the topmost card
+    // Now we have the highest card in the stack, and area includes that
+    // card and all the cards below (and therefore covering) that card.
     if (foundCardNumber != null) {
-      return FoundCard(foundSlot!, foundCardNumber!);
+      return FoundCard(foundSlot!, foundCardNumber!, area!);
     } else {
       return null;
     }
+  }
+
+  SlotWithCards? findSlot(
+      ui.Rect area, ui.Size size, GameController controller) {
+    double overlapArea = 0;
+    SlotWithCards? foundSlot;
+    void checkSlot(SlotWithCards slot, ui.Rect slotArea) {
+      final overlap = area.intersect(slotArea);
+      if (overlap.width > 0 && overlap.height > 0) {
+        final a = overlap.width * overlap.height;
+        if (a > overlapArea) {
+          overlapArea = a;
+          foundSlot = slot;
+        }
+      }
+    }
+
+    layout.visitSlots(
+        size,
+        controller,
+        (NormalSlot n, ui.Rect space) => checkSlot(n, space),
+        (ExtendedSlot e, _, ui.Rect space) => checkSlot(e, space));
+    return foundSlot;
   }
 }
 
@@ -394,27 +443,36 @@ class FoundCard {
   final SlotWithCards slot;
   final int cardNumber;
 
-  FoundCard(this.slot, this.cardNumber);
+  /// Area covered by the card, and any below it in the stack
+  final ui.Rect area;
+
+  FoundCard(this.slot, this.cardNumber, this.area);
 
   @override
   String toString() => slot.cards[cardNumber].toString();
 }
 
+typedef _ExtendedSlotF = void Function(
+    ExtendedSlot slot, double cardHeight, ui.Rect maxSpace);
+
+typedef _NormalSlotF = void Function(NormalSlot slot, ui.Rect space);
+
 typedef _SpaceF = void Function(
-    SlotWithCards slot, int? cardNumber, ui.Rect space);
+    SlotWithCards slot, int? cardNumber, ui.Rect space, bool coversSomething);
 
 class _BoardLayout {
   final ui.Rect cardSize;
 
   _BoardLayout(this.cardSize);
 
-  void visitCards(ui.Size sz, GameController controller, _SpaceF spaceF) {
+  void visitSlots(ui.Size sz, GameController controller, _NormalSlotF normal,
+      _ExtendedSlotF extended) {
     final game = controller.game;
     final double height = sz.height;
     final double width = sz.width;
     final cardWidth = width / controller.size.width;
     final cardHeight = cardWidth * cardSize.height / cardSize.width;
-    final extendedAreaHeight = (height - cardHeight * controller.size.height) /
+    final heightExtension = (height - cardHeight * controller.size.height) /
         max(1, controller.extendedSlotRowCount);
     double x = 0;
     double y = 0;
@@ -424,36 +482,20 @@ class _BoardLayout {
     for (final s in game.slots) {
       s.visit(normal: (slot) {
         final space = ui.Rect.fromLTWH(x, y, cardWidth, cardHeight);
-        if (slot.cards.isEmpty) {
-          spaceF(slot, null, space);
-        } else {
-          spaceF(slot, slot.cards.length - 1, space);
-        }
+        normal(slot, space);
         rowH = max(rowH, cardHeight);
         x += cardWidth;
       }, extended: (slot) {
-        double offset = 0;
-        double delta = (slot.cards.length < 2)
-            ? 0
-            : extendedAreaHeight / (slot.cards.length - 1);
-        delta = min(delta, cardHeight / 5);
-        delta = max(delta, cardHeight / 20);
-        if (slot.cards.isEmpty) {
-          final space = ui.Rect.fromLTWH(x, y, cardWidth, cardHeight);
-          spaceF(slot, null, space);
-        }
-        for (int i = 0; i < slot.cards.length; i++) {
-          final space = ui.Rect.fromLTWH(x, y + offset, cardWidth, cardHeight);
-          spaceF(slot, i, space);
-          offset += delta;
-        }
+        final space =
+            ui.Rect.fromLTWH(x, y, cardWidth, cardHeight + heightExtension);
+        extended(slot, cardHeight, space);
         extendedSeen = true;
         rowH = max(rowH, cardHeight);
         x += cardWidth;
       }, cr: (slot) {
         x = 0;
         if (extendedSeen) {
-          y += extendedAreaHeight;
+          y += heightExtension;
         }
         y += slot.extraHeight * cardHeight;
         y += rowH;
@@ -463,5 +505,34 @@ class _BoardLayout {
         x += slot.width * cardWidth;
       });
     }
+  }
+
+  void visitCards(ui.Size sz, GameController controller, _SpaceF spaceF) {
+    visitSlots(sz, controller, (NormalSlot slot, ui.Rect space) {
+      if (slot.cards.isEmpty) {
+        spaceF(slot, null, space, false);
+      } else {
+        spaceF(slot, slot.cards.length - 1, space, true);
+      }
+    }, (ExtendedSlot slot, double cardHeight, ui.Rect slotArea) {
+      final extraHeight = slotArea.height - cardHeight;
+      double offset = 0;
+      double delta = (slot.cards.length < 2)
+          ? 0
+          : extraHeight / (slot.cards.length - 1);
+      delta = min(delta, cardHeight / 5);
+      delta = max(delta, cardHeight / 24);
+      if (slot.cards.isEmpty) {
+        final space = ui.Rect.fromLTWH(
+            slotArea.left, slotArea.top, slotArea.width, cardHeight);
+        spaceF(slot, null, space, false);
+      }
+      for (int i = 0; i < slot.cards.length; i++) {
+        final space = ui.Rect.fromLTWH(
+            slotArea.left, slotArea.top + offset, slotArea.width, cardHeight);
+        spaceF(slot, i, space, i == 0);
+        offset += delta;
+      }
+    });
   }
 }

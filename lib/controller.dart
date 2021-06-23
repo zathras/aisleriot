@@ -17,7 +17,6 @@
  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 import 'dart:math';
 import 'dart:ui' as ui;
 
@@ -38,6 +37,7 @@ class GameController extends ui.ChangeNotifier {
   // size in card widths/card heights, not accounting for extended slots
   final ui.Size size;
   final int extendedSlotRowCount;
+
   /// Set by GameState, and changed when the card sizes might change.
   late CardFinder finder;
 
@@ -85,20 +85,18 @@ class GameController extends ui.ChangeNotifier {
     // final f = finder.find(pos, size, this);
   }
 
-  void doubleClick() {
-  }
+  void doubleClick() {}
 
   void clickStart(ui.Size size, ui.Offset pos) {
     // final f = finder.find(pos, size, this);
   }
 
-  void click() {
-  }
+  void click() {}
 
   void dragStart(ui.Size size, ui.Offset pos) {
     final f = finder.find(pos, size, this);
     if (f != null) {
-      drag = Drag(f, pos);
+      drag = Drag(f, pos, size);
       notifyListeners();
     }
   }
@@ -119,7 +117,14 @@ class GameController extends ui.ChangeNotifier {
   void dragEnd() {
     final d = drag;
     if (d != null) {
-      // Do what I mean
+      final area = d.card.area
+          .translate(d.current.dx - d.start.dx, d.current.dy - d.start.dy);
+      final dest = finder.findSlot(area, d.screenSize, this);
+      if (dest != null && dest != d.card.slot) {
+        final List<Card> from = d.card.slot.cards;
+        dest.cards.addAll(from.getRange(d.card.cardNumber, from.length));
+        from.length = d.card.cardNumber;
+      }
     }
     drag = null;
     notifyListeners();
@@ -129,7 +134,10 @@ class GameController extends ui.ChangeNotifier {
 class Drag {
   final ui.Offset start;
   final FoundCard card;
+  final ui.Size screenSize;
   ui.Offset current;
 
-  Drag(this.card, ui.Offset start) : start = start, current = start;
+  Drag(this.card, ui.Offset start, this.screenSize)
+      : start = start,
+        current = start;
 }
