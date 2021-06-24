@@ -435,7 +435,7 @@ class GameWidget extends StatefulWidget {
 }
 
 class GameState extends State<GameWidget> {
-  GameController controller = GameController(Freecell());
+  GameController controller = Freecell().makeController();
   Assets assets;
   bool needsPaint = false;
 
@@ -445,7 +445,6 @@ class GameState extends State<GameWidget> {
   void initState() {
     super.initState();
     controller.addListener(_appearanceChanged);
-    controller.finder = CardFinder(widget.painter);
     controller.painter = widget.painter;
   }
 
@@ -461,7 +460,6 @@ class GameState extends State<GameWidget> {
     super.didUpdateWidget(oldWidget);
     if (widget.painter != oldWidget.painter) {
       oldWidget.painter.dispose();
-      controller.finder = CardFinder(widget.painter);
       controller.painter = widget.painter;
     }
   }

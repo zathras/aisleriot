@@ -21,17 +21,28 @@
 
 import 'dart:math';
 
-abstract class Game {
+import 'package:aisleriot/graphics.dart';
+
+import '../controller.dart';
+
+abstract class Game<CS extends SlotWithCards> {
   final List<Slot> slots;
 
   Game(List<Slot> slots) : slots = List.unmodifiable(slots) {
     assert(slots.last is CarriageReturnSlot);
+    for (final s in slots) {
+      assert((!(s is SlotWithCards)) || (s is CS));
+    }
   }
 
-  /// button-pressed
-  bool canSelect(SlotStack s);
+  GameController<CS> makeController() => GameController<CS>(this);
 
-  List<Move> doubleClick(SlotStack s);
+  /// button-pressed
+  bool canSelect(SlotStack<CS> s);
+
+  List<Move<CS>> doubleClick(SlotStack<CS> s);
+
+  bool canDrop(FoundCard<CS> card, CS dest);
 }
 
 abstract class Slot {
@@ -49,10 +60,14 @@ abstract class SlotWithCards extends Slot {
   final cards = List<Card>.empty(growable: true);
 
   SlotWithCards();
+
+  bool get isEmpty => cards.isEmpty;
+  bool get isNotEmpty => cards.isNotEmpty;
 }
 
-/// A slot in which the topmost card is visible
-class NormalSlot extends SlotWithCards {
+/// A slot in which the topmost card is visible.  To be extended by
+/// a game.
+abstract class NormalSlot extends SlotWithCards {
   NormalSlot();
 
   @override
@@ -65,8 +80,8 @@ class NormalSlot extends SlotWithCards {
 }
 
 /// A slot in which all the cards are visible, arranged as an
-/// overlapped pile, proceeding down
-class ExtendedSlot extends SlotWithCards {
+/// overlapped pile, proceeding down.  To be extended by a game.
+abstract class ExtendedSlot extends SlotWithCards {
   ExtendedSlot({double horizPosOffset = 0});
 
   @override
@@ -159,14 +174,22 @@ enum CardColor { red, black }
 ///
 /// A stack of one or more cards pulled from a slot
 ///
-class SlotStack {
-  final SlotWithCards slot;
+class SlotStack<CS extends SlotWithCards> {
+  final CS slot;
   final int cardNumber;
 
   SlotStack(this.slot, this.cardNumber);
 
   @override
   String toString() => slot.cards[cardNumber].toString();
+
+  int get length => slot.cards.length - cardNumber;
+
+  /// Highest on the screen, which means the rest of the cards are,
+  /// confusingly, partly covering this card.
+  Card get highest => slot.cards[cardNumber];
+
+  Card get lowest => slot.cards.last;
 
   CardList? toList() {
     CardList? node;
@@ -195,9 +218,9 @@ class CardList {
 ///
 /// Move the cards from [src] to [dest].
 ///
-class Move {
-  final SlotWithCards src;
-  final SlotWithCards dest;
+class Move<CS extends SlotWithCards> {
+  final CS src;
+  final CS dest;
   final int numCards;
   final bool animate;
 

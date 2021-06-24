@@ -31,8 +31,8 @@ import 'm/game.dart';
 /// the positions of the graphical assets.  The view should register as a
 /// listener via the `ChangeNotifier` API.
 ///
-class GameController extends ui.ChangeNotifier {
-  final Game game;
+class GameController<CS extends SlotWithCards> extends ui.ChangeNotifier {
+  final Game<CS> game;
   final List<bool> hasExtendedSlots;
   final List<double> rowHeight;
 
@@ -41,15 +41,15 @@ class GameController extends ui.ChangeNotifier {
   final int extendedSlotRowCount;
 
   /// Set by GameState, and changed when the card sizes might change.
-  late CardFinder finder;
+  late CardFinder<CS> _finder;
 
   /// Set and updated by GameState.
-  late GamePainter painter;
+  late GamePainter _painter;
 
-  Drag? drag;
-  FoundCard? doubleClickCard;
-  _GameAnimation? _inFlight;
-  MovingStack? get movement => drag ?? _inFlight;
+  Drag<CS>? drag;
+  FoundCard<CS>? doubleClickCard;
+  _GameAnimation<CS>? _inFlight;
+  MovingStack<CS>? get movement => drag ?? _inFlight;
 
   GameController._p(this.game, this.sizeInCards, List<bool> hasExtendedSlots,
       List<double> rowHeight)
@@ -58,7 +58,7 @@ class GameController extends ui.ChangeNotifier {
         extendedSlotRowCount =
             hasExtendedSlots.fold(0, (count, v) => v ? (count + 1) : count);
 
-  factory GameController(Game game) {
+  factory GameController(Game<CS> game) {
     final hasExtendedSlots = List<bool>.empty(growable: true);
     final rowHeight = List<double>.empty(growable: true);
     double height = 0;
@@ -85,15 +85,22 @@ class GameController extends ui.ChangeNotifier {
         rowW += slot.width;
       });
     }
-    return GameController._p(
+    return GameController<CS>._p(
         game, ui.Size(width, height), hasExtendedSlots, rowHeight);
+  }
+
+  GamePainter get painter => _painter;
+  set painter(GamePainter v) {
+    _painter = v;
+    print("@@ Making finder, ${this.runtimeType}");
+    _finder = CardFinder<CS>(_painter);
   }
 
   ui.Size get screenSize => painter.lastPaintSize;
   double get cardWidth => screenSize.width / sizeInCards.width;
 
   void doubleClickStart(ui.Offset pos) {
-    final f = finder.find(pos, this);
+    final f = _finder.find(pos, this);
     if (f != null) {
       doubleClickCard = f;
     }
@@ -105,7 +112,7 @@ class GameController extends ui.ChangeNotifier {
       return;
     }
     _inFlight?.finish();
-    final List<Move> todo = game.doubleClick(dc);
+    final List<Move<CS>> todo = game.doubleClick(dc);
     if (todo.isEmpty) {
       return;
     }
@@ -119,7 +126,7 @@ class GameController extends ui.ChangeNotifier {
   void click() {}
 
   void dragStart(ui.Offset pos) {
-    final f = finder.find(pos, this);
+    final f = _finder.find(pos, this);
     if (f != null && game.canSelect(f)) {
       _inFlight?.finish();
       drag = Drag(f, pos);
@@ -145,8 +152,8 @@ class GameController extends ui.ChangeNotifier {
     if (d != null) {
       final area = d.card.area
           .translate(d.current.dx - d.start.dx, d.current.dy - d.start.dy);
-      final dest = finder.findSlot(area, this);
-      if (dest != null && dest != d.card.slot) {
+      final CS? dest = _finder.findSlot(area, this);
+      if (dest != null && dest != d.card.slot && game.canDrop(d.card, dest)) {
         final List<Card> from = d.card.slot.cards;
         dest.cards.addAll(from.getRange(d.card.cardNumber, from.length));
         from.length = d.card.cardNumber;
@@ -160,15 +167,15 @@ class GameController extends ui.ChangeNotifier {
   void notifyListeners() => super.notifyListeners(); // Make it public
 }
 
-abstract class MovingStack {
+abstract class MovingStack<CS extends SlotWithCards> {
   int get cardNumber;
-  SlotWithCards get slot;
+  CS get slot;
   double get dx;
   double get dy;
 }
 
-class Drag extends MovingStack {
-  final FoundCard card;
+class Drag<CS extends SlotWithCards> extends MovingStack<CS> {
+  final FoundCard<CS> card;
   final ui.Offset start;
   ui.Offset current;
 
@@ -180,7 +187,7 @@ class Drag extends MovingStack {
   int get cardNumber => card.cardNumber;
 
   @override
-  SlotWithCards get slot => card.slot;
+  CS get slot => card.slot;
 
   @override
   double get dx => current.dx - start.dx;
@@ -189,9 +196,9 @@ class Drag extends MovingStack {
   double get dy => current.dy - start.dy;
 }
 
-class _GameAnimation implements MovingStack {
-  final GameController controller;
-  final List<Move> moves;
+class _GameAnimation<CS extends SlotWithCards> implements MovingStack<CS> {
+  final GameController<CS> controller;
+  final List<Move<CS>> moves;
   int move = 0;
   final Stopwatch time = Stopwatch();
   int lastTicks = 0;
@@ -199,7 +206,7 @@ class _GameAnimation implements MovingStack {
   ui.Offset movePos = ui.Offset.zero;
   ui.Offset moveDest = ui.Offset.zero;
 
-  static const double speed = 50; // card widths/second
+  static const double speed = 75; // card widths/second
 
   _GameAnimation(this.controller, this.moves) {
     timer = Timer.periodic(Duration(microseconds: (1000000 / 300).ceil()), _timerTick);
@@ -221,8 +228,8 @@ class _GameAnimation implements MovingStack {
     } else {
       final m = moves[move];
       movePos = ui.Offset.zero;
-      var startPos = controller.finder.cardPos(m.topMovingCard, controller);
-      var endPos = controller.finder.nextCardPos(m.dest, controller);
+      var startPos = controller._finder.cardPos(m.topMovingCard, controller);
+      var endPos = controller._finder.nextCardPos(m.dest, controller);
       moveDest = endPos - startPos;
     }
     show();
@@ -269,7 +276,7 @@ class _GameAnimation implements MovingStack {
 
   @override
   // TODO: implement slot
-  SlotWithCards get slot => moves[move].src;
+  CS get slot => moves[move].src;
 
   @override
   // TODO: implement dx

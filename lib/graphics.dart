@@ -382,27 +382,30 @@ class _CardCacheEntry {
   }
 }
 
-class FoundCard extends SlotStack {
+class FoundCard<CS extends SlotWithCards> extends SlotStack<CS> {
   /// Area of card cardNumber
   final ui.Rect area;
 
-  FoundCard(SlotWithCards slot, int cardNumber, this.area)
-      : super(slot, cardNumber);
+  FoundCard(CS slot, int cardNumber, this.area)
+      : super(slot, cardNumber) {
+    print("@@ ${slot.runtimeType}");
+    print("@@ ${this.runtimeType}");
+  }
 }
 
-class CardFinder {
+class CardFinder<CS extends SlotWithCards> {
   final _BoardLayout layout;
 
   CardFinder(GamePainter painter) : layout = painter.layout;
 
-  FoundCard? find(ui.Offset pos, GameController controller) {
-    SlotWithCards? foundSlot;
+  FoundCard<CS>? find(ui.Offset pos, GameController<CS> controller) {
+    CS? foundSlot;
     int? foundCardNumber;
     ui.Rect? area;
     layout.visitCards(controller,
         (SlotWithCards slot, int? cardNumber, ui.Rect space, _) {
       if (space.contains(pos)) {
-        foundSlot = slot;
+        foundSlot = slot as CS;   // Game has an assert that makes this safe
         foundCardNumber = cardNumber;
         area = space;
       }
@@ -410,22 +413,23 @@ class CardFinder {
     // Now we have the highest card in the stack, and area includes that
     // card and all the cards below (and therefore covering) that card.
     if (foundCardNumber != null) {
-      return FoundCard(foundSlot!, foundCardNumber!, area!);
+      print("@@ making, ${this.runtimeType}");
+      return FoundCard<CS>(foundSlot!, foundCardNumber!, area!);
     } else {
       return null;
     }
   }
 
-  SlotWithCards? findSlot(ui.Rect area, GameController controller) {
+  CS? findSlot(ui.Rect area, GameController<CS> controller) {
     double overlapArea = 0;
-    SlotWithCards? foundSlot;
+    CS? foundSlot;
     void checkSlot(SlotWithCards slot, ui.Rect slotArea) {
       final overlap = area.intersect(slotArea);
       if (overlap.width > 0 && overlap.height > 0) {
         final a = overlap.width * overlap.height;
         if (a > overlapArea) {
           overlapArea = a;
-          foundSlot = slot;
+          foundSlot = slot as CS;   // Game has an assert that makes this safe
         }
       }
     }
