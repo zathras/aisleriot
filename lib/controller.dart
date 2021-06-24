@@ -92,7 +92,6 @@ class GameController<CS extends SlotWithCards> extends ui.ChangeNotifier {
   GamePainter get painter => _painter;
   set painter(GamePainter v) {
     _painter = v;
-    print("@@ Making finder, ${this.runtimeType}");
     _finder = CardFinder<CS>(_painter);
   }
 
@@ -106,12 +105,18 @@ class GameController<CS extends SlotWithCards> extends ui.ChangeNotifier {
     }
   }
 
+  void _finishPending() {
+    while (_inFlight != null) {
+      _inFlight!.finish();
+    }
+  }
+
   void doubleClick() {
     final dc = doubleClickCard;
     if (dc == null) {
       return;
     }
-    _inFlight?.finish();
+    _finishPending();
     final List<Move<CS>> todo = game.doubleClick(dc);
     if (todo.isEmpty) {
       return;
@@ -128,7 +133,7 @@ class GameController<CS extends SlotWithCards> extends ui.ChangeNotifier {
   void dragStart(ui.Offset pos) {
     final f = _finder.find(pos, this);
     if (f != null && game.canSelect(f)) {
-      _inFlight?.finish();
+      _finishPending();
       drag = Drag(f, pos);
       notifyListeners();
     }
@@ -157,6 +162,7 @@ class GameController<CS extends SlotWithCards> extends ui.ChangeNotifier {
         final List<Card> from = d.card.slot.cards;
         dest.cards.addAll(from.getRange(d.card.cardNumber, from.length));
         from.length = d.card.cardNumber;
+        doAutomaticMoves();
       }
     }
     drag = null;
@@ -164,7 +170,16 @@ class GameController<CS extends SlotWithCards> extends ui.ChangeNotifier {
   }
 
   @override
-  void notifyListeners() => super.notifyListeners(); // Make it public
+  void notifyListeners() => super.notifyListeners();
+  // Make it public
+
+  void doAutomaticMoves() {
+    assert(_inFlight == null);
+    final newMoves = game.automaticMoves();
+    if (newMoves.isNotEmpty) {
+      _inFlight = _GameAnimation(this, newMoves);
+    }
+  }
 }
 
 abstract class MovingStack<CS extends SlotWithCards> {
@@ -269,13 +284,13 @@ class _GameAnimation<CS extends SlotWithCards> implements MovingStack<CS> {
     assert(controller._inFlight == this);
     controller._inFlight = null;
     controller.notifyListeners();
+    controller.doAutomaticMoves();
   }
 
   @override
   int get cardNumber => moves[move].src.cards.length - moves[move].numCards;
 
   @override
-  // TODO: implement slot
   CS get slot => moves[move].src;
 
   @override

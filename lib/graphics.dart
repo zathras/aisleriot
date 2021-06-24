@@ -387,10 +387,7 @@ class FoundCard<CS extends SlotWithCards> extends SlotStack<CS> {
   final ui.Rect area;
 
   FoundCard(CS slot, int cardNumber, this.area)
-      : super(slot, cardNumber) {
-    print("@@ ${slot.runtimeType}");
-    print("@@ ${this.runtimeType}");
-  }
+      : super(slot, cardNumber);
 }
 
 class CardFinder<CS extends SlotWithCards> {
@@ -413,7 +410,6 @@ class CardFinder<CS extends SlotWithCards> {
     // Now we have the highest card in the stack, and area includes that
     // card and all the cards below (and therefore covering) that card.
     if (foundCardNumber != null) {
-      print("@@ making, ${this.runtimeType}");
       return FoundCard<CS>(foundSlot!, foundCardNumber!, area!);
     } else {
       return null;

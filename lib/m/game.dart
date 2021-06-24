@@ -43,6 +43,8 @@ abstract class Game<CS extends SlotWithCards> {
   List<Move<CS>> doubleClick(SlotStack<CS> s);
 
   bool canDrop(FoundCard<CS> card, CS dest);
+
+  List<Move<CS>>automaticMoves();
 }
 
 abstract class Slot {

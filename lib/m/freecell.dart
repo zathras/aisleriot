@@ -38,7 +38,7 @@ typedef _FoundCard = FoundCard<_FreecellGenericSlot>;
 
 class _FreecellSlot extends NormalSlot implements _FreecellGenericSlot {
   @override
-  canSelect(_SlotStack cards, Freecell game) => true;
+  bool canSelect(_SlotStack cards, Freecell game) => true;
 
   /// movable-to-freecell?
   @override
@@ -48,7 +48,7 @@ class _FreecellSlot extends NormalSlot implements _FreecellGenericSlot {
 
 class _HomecellSlot extends NormalSlot implements _FreecellGenericSlot {
   @override
-  canSelect(_SlotStack cards, Freecell game) => false;
+  bool canSelect(_SlotStack cards, Freecell game) => false;
 
   /// movable-to-homecell?
   @override
@@ -68,7 +68,7 @@ class _HomecellSlot extends NormalSlot implements _FreecellGenericSlot {
 
 class _FieldSlot extends ExtendedSlot implements _FreecellGenericSlot {
   @override
-  canSelect(_SlotStack cards, Freecell game) =>
+  bool canSelect(_SlotStack cards, Freecell game) =>
       game.fieldSequenceQ(cards.toList());
 
   /// Based on movable-to-field?, but we already know the cards being
@@ -166,6 +166,7 @@ class Freecell extends Game<_FreecellGenericSlot> {
     return const [];
   }
 
+  /// 0 (one less than ace) on empty
   int minimumHomecellValue() =>
       homecell.fold(99, (a, v) => min(a, v.cards.length));
 
@@ -194,4 +195,35 @@ class Freecell extends Game<_FreecellGenericSlot> {
   /// empty-freecell-number
   int emptyFreecellCount() =>
       freecell.fold(0, (acc, f) => acc + (f.isEmpty ? 1 : 0));
+
+  @override
+  List<_Move> automaticMoves() {
+    final eligibleValue = minimumHomecellValue() + 2;
+    _Move? check(_FreecellGenericSlot slot) {
+      if (slot.isNotEmpty) {
+        final stack = _SlotStack(slot, slot.cards.length-1);
+        if (stack.highest.value <= eligibleValue) {
+          for (final dest in homecell) {
+            if (dest.movableTo(stack, this)) {
+              return _Move(src: slot, dest: dest);
+            }
+          }
+        }
+      }
+      return null;
+    }
+    for (final slot in freecell) {
+      final m = check(slot);
+      if (m != null) {
+        return [ m ];
+      }
+    }
+    for (final slot in field) {
+      final m = check(slot);
+      if (m != null) {
+        return [ m ];
+      }
+    }
+    return const [];
+  }
 }
