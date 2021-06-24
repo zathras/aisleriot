@@ -19,7 +19,6 @@
  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 import 'dart:math';
 
 abstract class Game {
@@ -28,6 +27,11 @@ abstract class Game {
   Game(List<Slot> slots) : slots = List.unmodifiable(slots) {
     assert(slots.last is CarriageReturnSlot);
   }
+
+  /// button-pressed
+  bool canSelect(SlotStack s);
+
+  List<Move> doubleClick(SlotStack s);
 }
 
 abstract class Slot {
@@ -151,3 +155,65 @@ class Suit {
 }
 
 enum CardColor { red, black }
+
+///
+/// A stack of one or more cards pulled from a slot
+///
+class SlotStack {
+  final SlotWithCards slot;
+  final int cardNumber;
+
+  SlotStack(this.slot, this.cardNumber);
+
+  @override
+  String toString() => slot.cards[cardNumber].toString();
+
+  CardList? toList() {
+    CardList? node;
+    for (int i = cardNumber; i < slot.cards.length; i++) {
+      final n = CardList(slot.cards[i], node);
+      node = n;
+    }
+    return node;
+  }
+}
+
+///
+/// A Scheme-like list for the list of cards.  Car is the lowest
+/// card on the stack, and the end of the list is the highest (that is,
+/// the one being moved in a supermove).
+///
+class CardList {
+  Card car;
+  CardList? cdr;
+
+  CardList(this.car, this.cdr);
+
+  Card get cadr => cdr!.car;
+}
+
+///
+/// Move the cards from [src] to [dest].
+///
+class Move {
+  final SlotWithCards src;
+  final SlotWithCards dest;
+  final int numCards;
+  final bool animate;
+
+  Move(
+      {required this.src,
+      required this.dest,
+      this.numCards = 1,
+      this.animate = true});
+
+  Card get topMovingCard => src.cards[src.cards.length - numCards];
+
+  void move() {
+    final sl = src.cards;
+    for (int i = sl.length - numCards; i < sl.length; i++) {
+      dest.cards.add(sl[i]);
+    }
+    sl.length -= numCards;
+  }
+}

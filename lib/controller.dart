@@ -17,6 +17,7 @@
  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+import 'dart:async';
 import 'dart:math';
 import 'dart:ui' as ui;
 
@@ -34,17 +35,24 @@ class GameController extends ui.ChangeNotifier {
   final Game game;
   final List<bool> hasExtendedSlots;
   final List<double> rowHeight;
-  // size in card widths/card heights, not accounting for extended slots
-  final ui.Size size;
+
+  /// size in card widths/card heights, not accounting for extended slots
+  final ui.Size sizeInCards;
   final int extendedSlotRowCount;
 
   /// Set by GameState, and changed when the card sizes might change.
   late CardFinder finder;
 
-  Drag? drag;
+  /// Set and updated by GameState.
+  late GamePainter painter;
 
-  GameController._p(
-      this.game, this.size, List<bool> hasExtendedSlots, List<double> rowHeight)
+  Drag? drag;
+  FoundCard? doubleClickCard;
+  _GameAnimation? _inFlight;
+  MovingStack? get movement => drag ?? _inFlight;
+
+  GameController._p(this.game, this.sizeInCards, List<bool> hasExtendedSlots,
+      List<double> rowHeight)
       : hasExtendedSlots = List.unmodifiable(hasExtendedSlots),
         rowHeight = List.unmodifiable(rowHeight),
         extendedSlotRowCount =
@@ -81,27 +89,45 @@ class GameController extends ui.ChangeNotifier {
         game, ui.Size(width, height), hasExtendedSlots, rowHeight);
   }
 
-  void doubleClickStart(ui.Size size, ui.Offset pos) {
-    // final f = finder.find(pos, size, this);
+  ui.Size get screenSize => painter.lastPaintSize;
+  double get cardWidth => screenSize.width / sizeInCards.width;
+
+  void doubleClickStart(ui.Offset pos) {
+    final f = finder.find(pos, this);
+    if (f != null) {
+      doubleClickCard = f;
+    }
   }
 
-  void doubleClick() {}
+  void doubleClick() {
+    final dc = doubleClickCard;
+    if (dc == null) {
+      return;
+    }
+    _inFlight?.finish();
+    final List<Move> todo = game.doubleClick(dc);
+    if (todo.isEmpty) {
+      return;
+    }
+    _inFlight = _GameAnimation(this, todo);
+  }
 
-  void clickStart(ui.Size size, ui.Offset pos) {
+  void clickStart(ui.Offset pos) {
     // final f = finder.find(pos, size, this);
   }
 
   void click() {}
 
-  void dragStart(ui.Size size, ui.Offset pos) {
-    final f = finder.find(pos, size, this);
-    if (f != null) {
-      drag = Drag(f, pos, size);
+  void dragStart(ui.Offset pos) {
+    final f = finder.find(pos, this);
+    if (f != null && game.canSelect(f)) {
+      _inFlight?.finish();
+      drag = Drag(f, pos);
       notifyListeners();
     }
   }
 
-  void dragMove(ui.Size size, ui.Offset pos) {
+  void dragMove(ui.Offset pos) {
     final d = drag;
     if (d != null) {
       d.current = pos;
@@ -119,7 +145,7 @@ class GameController extends ui.ChangeNotifier {
     if (d != null) {
       final area = d.card.area
           .translate(d.current.dx - d.start.dx, d.current.dy - d.start.dy);
-      final dest = finder.findSlot(area, d.screenSize, this);
+      final dest = finder.findSlot(area, this);
       if (dest != null && dest != d.card.slot) {
         final List<Card> from = d.card.slot.cards;
         dest.cards.addAll(from.getRange(d.card.cardNumber, from.length));
@@ -129,15 +155,127 @@ class GameController extends ui.ChangeNotifier {
     drag = null;
     notifyListeners();
   }
+
+  @override
+  void notifyListeners() => super.notifyListeners(); // Make it public
 }
 
-class Drag {
-  final ui.Offset start;
+abstract class MovingStack {
+  int get cardNumber;
+  SlotWithCards get slot;
+  double get dx;
+  double get dy;
+}
+
+class Drag extends MovingStack {
   final FoundCard card;
-  final ui.Size screenSize;
+  final ui.Offset start;
   ui.Offset current;
 
-  Drag(this.card, ui.Offset start, this.screenSize)
+  Drag(this.card, ui.Offset start)
       : start = start,
         current = start;
+
+  @override
+  int get cardNumber => card.cardNumber;
+
+  @override
+  SlotWithCards get slot => card.slot;
+
+  @override
+  double get dx => current.dx - start.dx;
+
+  @override
+  double get dy => current.dy - start.dy;
+}
+
+class _GameAnimation implements MovingStack {
+  final GameController controller;
+  final List<Move> moves;
+  int move = 0;
+  final Stopwatch time = Stopwatch();
+  int lastTicks = 0;
+  late final Timer timer;
+  ui.Offset movePos = ui.Offset.zero;
+  ui.Offset moveDest = ui.Offset.zero;
+
+  static const double speed = 50; // card widths/second
+
+  _GameAnimation(this.controller, this.moves) {
+    timer = Timer.periodic(Duration(microseconds: (1000000 / 300).ceil()), _timerTick);
+    // 300 Hz is faster than needed, but the amount of work done here is
+    // trivial.  This lets the Flutter engine display frames basically as
+    // fast as it likes.
+    time.start();
+    _setPositions();
+  }
+
+  bool get finished => move >= moves.length;
+
+  void _setPositions() {
+    while (!finished && !moves[move].animate) {
+      moves[move++].move();
+    }
+    if (finished) {
+      finish();
+    } else {
+      final m = moves[move];
+      movePos = ui.Offset.zero;
+      var startPos = controller.finder.cardPos(m.topMovingCard, controller);
+      var endPos = controller.finder.nextCardPos(m.dest, controller);
+      moveDest = endPos - startPos;
+    }
+    show();
+  }
+
+  void _timerTick(Timer _) {
+    final elapsedTicks = time.elapsedTicks;
+    double seconds = (elapsedTicks - lastTicks).toDouble() / time.frequency;
+    lastTicks = elapsedTicks;
+    double dist = seconds * speed * controller.cardWidth;
+    while (dist > 0) {
+      final delta = moveDest - movePos;
+      final deltaD = delta.distance;
+      if (deltaD > dist) {
+        movePos += delta * (dist / deltaD);
+        show();
+        break;
+      } else {
+        dist -= deltaD;
+        moves[move++].move();
+        _setPositions();
+        if (finished) {
+          break;
+        }
+      }
+    }
+  }
+
+  void show() => controller.notifyListeners();
+
+  void finish() {
+    while (move < moves.length) {
+      moves[move++].move();
+    }
+    time.stop();
+    timer.cancel();
+    assert(controller._inFlight == this);
+    controller._inFlight = null;
+    controller.notifyListeners();
+  }
+
+  @override
+  int get cardNumber => moves[move].src.cards.length - moves[move].numCards;
+
+  @override
+  // TODO: implement slot
+  SlotWithCards get slot => moves[move].src;
+
+  @override
+  // TODO: implement dx
+  double get dx => movePos.dx;
+
+  @override
+  // TODO: implement dy
+  double get dy => movePos.dy;
 }

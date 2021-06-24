@@ -446,6 +446,7 @@ class GameState extends State<GameWidget> {
     super.initState();
     controller.addListener(_appearanceChanged);
     controller.finder = CardFinder(widget.painter);
+    controller.painter = widget.painter;
   }
 
   @override
@@ -461,6 +462,7 @@ class GameState extends State<GameWidget> {
     if (widget.painter != oldWidget.painter) {
       oldWidget.painter.dispose();
       controller.finder = CardFinder(widget.painter);
+      controller.painter = widget.painter;
     }
   }
 
@@ -468,16 +470,14 @@ class GameState extends State<GameWidget> {
 
   @override
   Widget build(BuildContext context) {
-    Size getSize() =>
-        (context.findRenderObject() as RenderBox?)?.size ?? Size.zero;
     return GestureDetector(
-        onTapDown: (e) => controller.clickStart(getSize(), e.localPosition),
+        onTapDown: (e) => controller.clickStart(e.localPosition),
         onTap: () => controller.click(),
         onDoubleTapDown: (e) =>
-            controller.doubleClickStart(getSize(), e.localPosition),
+            controller.doubleClickStart(e.localPosition),
         onDoubleTap: () => controller.doubleClick(),
-        onPanStart: (e) => controller.dragStart(getSize(), e.localPosition),
-        onPanUpdate: (e) => controller.dragMove(getSize(), e.localPosition),
+        onPanStart: (e) => controller.dragStart(e.localPosition),
+        onPanUpdate: (e) => controller.dragMove(e.localPosition),
         onPanCancel: () => controller.dragCancel(),
         onPanEnd: (e) => controller.dragEnd(),
         child: CustomPaint(
