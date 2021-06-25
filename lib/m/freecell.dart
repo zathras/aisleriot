@@ -56,7 +56,7 @@ class _HomecellSlot extends NormalSlot implements _FreecellGenericSlot {
     if (moving.slot == this || moving.length != 1) {
       return false;
     }
-    final card = moving.highest;
+    final card = moving.first;
     if (isEmpty) {
       return card.value == 1;
     } else {
@@ -69,7 +69,7 @@ class _HomecellSlot extends NormalSlot implements _FreecellGenericSlot {
 class _FieldSlot extends ExtendedSlot implements _FreecellGenericSlot {
   @override
   bool canSelect(_SlotStack cards, Freecell game) =>
-      game.fieldSequenceQ(cards.toList());
+      game.fieldSequenceQ(cards);
 
   /// Based on movable-to-field?, but we already know the cards being
   /// considered are a sequence.
@@ -87,7 +87,7 @@ class _FieldSlot extends ExtendedSlot implements _FreecellGenericSlot {
       //        And because of that, the max() does nothing.
       return false;
     }
-    return isEmpty || game.fieldJoinQ(moving.highest, cards.last);
+    return isEmpty || game.fieldJoinQ(moving.first, cards.last);
   }
 }
 
@@ -149,7 +149,7 @@ class Freecell extends Game<_FreecellGenericSlot> {
   List<_Move> doubleClick(_SlotStack s) {
     if (canSelect(s)) {
       final eligibleValue = minimumHomecellValue() + 2;
-      final Card card = s.slot.cards.last;
+      final Card card = s.last;
       if (card.value <= eligibleValue) {
         for (final dest in homecell) {
           if (dest.movableTo(s, this)) {
@@ -175,18 +175,13 @@ class Freecell extends Game<_FreecellGenericSlot> {
       lower.suit.color != upper.suit.color && lower.value + 1 == upper.value;
 
   /// field-sequence?
-  bool fieldSequenceQ(CardList? cards) {
-    // Dart does NOT optimize tail recursion (because JS is evil), so I guess
-    // I will.  cf. https://github.com/dart-lang/language/issues/1159
-    for (;;) {
-      if (cards == null || cards.cdr == null) {
-        return true;
-      } else if (!fieldJoinQ(cards.car, cards.cadr)) {
+  bool fieldSequenceQ(List<Card> cards) {
+    for (int i = 0; i < cards.length - 1; i++) {
+      if (!fieldJoinQ(cards[i + 1], cards[i])) {
         return false;
-      } else {
-        cards = cards.cdr;
       }
     }
+    return true;
   }
 
   /// empty-field-number
@@ -202,7 +197,7 @@ class Freecell extends Game<_FreecellGenericSlot> {
     _Move? check(_FreecellGenericSlot slot) {
       if (slot.isNotEmpty) {
         final stack = _SlotStack(slot, slot.cards.length-1);
-        if (stack.highest.value <= eligibleValue) {
+        if (stack.first.value <= eligibleValue) {
           for (final dest in homecell) {
             if (dest.movableTo(stack, this)) {
               return _Move(src: slot, dest: dest);

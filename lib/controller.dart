@@ -99,6 +99,7 @@ class GameController<CS extends SlotWithCards> extends ui.ChangeNotifier {
   double get cardWidth => screenSize.width / sizeInCards.width;
 
   void doubleClickStart(ui.Offset pos) {
+    pos = addPaintOffset(pos);
     final f = _finder.find(pos, this);
     if (f != null) {
       doubleClickCard = f;
@@ -125,12 +126,14 @@ class GameController<CS extends SlotWithCards> extends ui.ChangeNotifier {
   }
 
   void clickStart(ui.Offset pos) {
+    pos = addPaintOffset(pos);
     // final f = finder.find(pos, size, this);
   }
 
   void click() {}
 
   void dragStart(ui.Offset pos) {
+    pos = addPaintOffset(pos);
     final f = _finder.find(pos, this);
     if (f != null && game.canSelect(f)) {
       _finishPending();
@@ -140,6 +143,7 @@ class GameController<CS extends SlotWithCards> extends ui.ChangeNotifier {
   }
 
   void dragMove(ui.Offset pos) {
+    pos = addPaintOffset(pos);
     final d = drag;
     if (d != null) {
       d.current = pos;
@@ -180,6 +184,10 @@ class GameController<CS extends SlotWithCards> extends ui.ChangeNotifier {
       _inFlight = _GameAnimation(this, newMoves);
     }
   }
+
+  ui.Offset addPaintOffset(ui.Offset pos) => (_painter.lastPaintOffset == 0.0)
+      ? pos
+      : ui.Offset(pos.dx - _painter.lastPaintOffset, pos.dy);
 }
 
 abstract class MovingStack<CS extends SlotWithCards> {
@@ -224,7 +232,8 @@ class _GameAnimation<CS extends SlotWithCards> implements MovingStack<CS> {
   static const double speed = 75; // card widths/second
 
   _GameAnimation(this.controller, this.moves) {
-    timer = Timer.periodic(Duration(microseconds: (1000000 / 300).ceil()), _timerTick);
+    timer = Timer.periodic(
+        Duration(microseconds: (1000000 / 300).ceil()), _timerTick);
     // 300 Hz is faster than needed, but the amount of work done here is
     // trivial.  This lets the Flutter engine display frames basically as
     // fast as it likes.
@@ -301,3 +310,4 @@ class _GameAnimation<CS extends SlotWithCards> implements MovingStack<CS> {
   // TODO: implement dy
   double get dy => movePos.dy;
 }
+// TODO:  Right-click to show card

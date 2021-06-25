@@ -19,6 +19,7 @@
  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+import 'dart:collection';
 import 'dart:math';
 
 import 'package:aisleriot/graphics.dart';
@@ -44,7 +45,7 @@ abstract class Game<CS extends SlotWithCards> {
 
   bool canDrop(FoundCard<CS> card, CS dest);
 
-  List<Move<CS>>automaticMoves();
+  List<Move<CS>> automaticMoves();
 }
 
 abstract class Slot {
@@ -176,7 +177,9 @@ enum CardColor { red, black }
 ///
 /// A stack of one or more cards pulled from a slot
 ///
-class SlotStack<CS extends SlotWithCards> {
+class SlotStack<CS extends SlotWithCards>
+    with ListMixin<Card>
+    implements List<Card> {
   final CS slot;
   final int cardNumber;
 
@@ -185,21 +188,34 @@ class SlotStack<CS extends SlotWithCards> {
   @override
   String toString() => slot.cards[cardNumber].toString();
 
+  @override
   int get length => slot.cards.length - cardNumber;
 
-  /// Highest on the screen, which means the rest of the cards are,
-  /// confusingly, partly covering this card.
-  Card get highest => slot.cards[cardNumber];
-
-  Card get lowest => slot.cards.last;
-
-  CardList? toList() {
+  CardList? toLispList() {
     CardList? node;
     for (int i = cardNumber; i < slot.cards.length; i++) {
       final n = CardList(slot.cards[i], node);
       node = n;
     }
     return node;
+  }
+
+  @override
+  Card operator [](int i) {
+    if (i < 0) {
+      throw IndexError(i, this);
+    }
+    return slot.cards[i + cardNumber];
+  }
+
+  @override
+  void operator []=(int index, Card value) {
+    throw UnimplementedError('read-only list');
+  }
+
+  @override
+  set length(int newLength) {
+    throw UnimplementedError('read-only list');
   }
 }
 

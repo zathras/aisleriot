@@ -149,6 +149,7 @@ class GamePainter {
   final _BoardLayout layout;
   final _CardPainter _cardPainter;
   ui.Size lastPaintSize = ui.Size.zero;
+  double lastPaintOffset = 0;
 
   static final loadMessages = CircularBuffer(List.filled(5, ''));
 
@@ -228,8 +229,11 @@ class GamePainter {
   void paint(ui.Canvas c, ui.Size size, GameController controller) {
     if (size.width / size.height > maxAspectRatio) {
       final s = ui.Size(size.height * maxAspectRatio, size.height);
-      c.translate((size.width - s.width) / 2, 0);
+      lastPaintOffset = (size.width - s.width) / 2;
+      c.translate(lastPaintOffset, 0);
       size = s;
+    } else {
+      lastPaintOffset = 0;
     }
     lastPaintSize = size;
     Stopwatch sw = Stopwatch()..start();
