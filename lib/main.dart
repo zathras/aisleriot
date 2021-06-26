@@ -34,6 +34,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'controller.dart';
 import 'constants.dart';
 import 'm/freecell.dart';
+import 'm/game.dart';
 
 void main() async {
   // Get there first!
@@ -47,6 +48,7 @@ void main() async {
 class Settings {
   String deckAsset = 'guyenne-classic.si';
   bool cacheCardImages = true;
+  static Color foregroundColor = Colors.indigo.shade50;
 
   static Future<Settings> read() async {
     final storage = await SharedPreferences.getInstance();
@@ -88,7 +90,7 @@ class Settings {
 class Assets {
   final AssetBundle bundle;
 
-  /// The jupiter image, used as an appliation icon
+  /// The jupiter image, used as an application icon
   final ScalableImage icon;
 
   final Deck initialDeck;
@@ -113,7 +115,7 @@ class Assets {
     });
     final icon = await ScalableImage.fromSIAsset(
         rootBundle, 'assets/jupiter.si',
-        currentColor: Colors.indigo.shade100);
+        currentColor: Settings.foregroundColor);
     await icon.prepareImages(); // There aren't any, but it's totally harmless
     final deck = first ?? manifest[0];
     return Assets._p(b, icon, deck, manifest);
@@ -151,6 +153,7 @@ class _MainWindowState extends State<MainWindow> {
   GamePainter? painter;
   Settings settings;
   bool _first = true;
+  Game game = Freecell();
 
   _MainWindowState(this.lastDeckSelected, this.settings);
 
@@ -177,60 +180,67 @@ class _MainWindowState extends State<MainWindow> {
     final p = painter;
     return MaterialApp(
         title: 'Jovial Aisleriot',
+        theme: Theme.of(context).copyWith(
+          elevatedButtonTheme: ElevatedButtonThemeData(
+              style: ElevatedButton.styleFrom(
+            primary: Colors.indigo.shade400,
+            onSurface: Colors.white,
+          )),
+        ),
         home: Material(
             // The Material widget is needed for text widgets to work:
             // https://stackoverflow.com/questions/47114639/yellow-lines-under-text-widgets-in-flutter
             type: MaterialType.transparency,
-            child: Stack(
-              children: [
-                (p != null)
-                    ? GameWidget(widget.assets, p)
-                    : Container(
-                        color: GamePainter.background,
-                      ),
-                    Align(
-                        alignment: Alignment.topLeft,
-                        child:
-                        Padding(
-                            padding: EdgeInsets.fromLTRB(5, 10, 0, 0),
-                        child: ScalableImageWidget(
-                            si: widget.assets.icon, scale: 0.08))),
-                Align(alignment: Alignment.topRight, child:
-                Padding(
-                    padding: EdgeInsets.fromLTRB(0, 5, 5, 0),
-                    child:
-                    _buildMenu(context)))
-              ],
-            )));
+            child: LayoutBuilder(builder: (context, BoxConstraints bc) {
+              final short = bc.hasBoundedHeight &&
+                  bc.hasBoundedWidth &&
+                  bc.maxHeight * 1.5 < bc.maxWidth;
+              return Stack(
+                children: [
+                  Padding(
+                    padding: short
+                        ? const EdgeInsets.fromLTRB(120, 0, 0, 0)
+                        : const EdgeInsets.fromLTRB(0, 60, 0, 0),
+                    child: (p != null)
+                        ? GameWidget(widget.assets, game, p)
+                        : Container(
+                            color: GamePainter.background,
+                          ),
+                  ),
+                  short
+                      ? ButtonArea(
+                          state: this, width: 120, maxHeight: bc.maxHeight)
+                      : ButtonArea(
+                          state: this, height: 60, maxWidth: bc.maxWidth),
+                  Align(
+                      alignment: Alignment.topRight,
+                      child: Padding(
+                          padding: EdgeInsets.fromLTRB(0, 8, 8, 0),
+                          child: _buildMenu(context))),
+                  Align(
+                      alignment: Alignment.topLeft,
+                      child: Padding(
+                          padding: EdgeInsets.fromLTRB(5, 10, 0, 0),
+                          child: ScalableImageWidget(
+                              si: widget.assets.icon, scale: 0.08))),
+                ],
+              );
+            })));
   }
 
   Widget _buildMenu(BuildContext context) => PopupMenuButton(
         icon: Icon(
           Icons.menu,
-          color: Colors.indigo.shade100,
+          color: Colors.indigo.shade50,
         ),
         onSelected: (void Function() action) => action(),
         itemBuilder: (BuildContext context) {
           return <PopupMenuEntry<void Function()>>[
-            PopupMenuItem(
-                value: () {},
-                child: Row(
-                  children: [
-                    Text('Deck:  '),
-                    DropdownButton(
-                        value: lastDeckSelected,
-                        // icon: const Icon(Icons.arrow_downward),
-                        onChanged: (Deck? deck) => _changeDeck(context, deck),
-                        items: widget.assets.decks
-                            .map((v) => DropdownMenuItem(
-                                value: v, child: Text(v.deckName)))
-                            .toList()),
-                  ],
-                )),
-            CheckedPopupMenuItem(
-                checked: settings.cacheCardImages,
-                value: _changeCacheCardImages,
-                child: const Text('Cache Card Images')),
+            PopupMenuItem(enabled: true, value: () {}, child: Row(children: [Icon(Icons.arrow_back), Text(' Undo')])),
+            PopupMenuItem(enabled: true, value: () {}, child: Text(r'¯\_(ツ)_/¯  Solve')),
+            PopupMenuItem(enabled: true, value: () {}, child: Row(children: [Icon(Icons.arrow_forward), Text(' Redo')])),
+            PopupMenuItem(enabled: true, value: () {}, child: Text('New Game')),
+            PopupMenuItem(value: () {}, child: _settingsMenu(context)),
             PopupMenuItem(
                 value: () {},
                 child:
@@ -239,12 +249,52 @@ class _MainWindowState extends State<MainWindow> {
         },
       );
 
-  void _changeCacheCardImages() {
+  PopupMenuButton _settingsMenu(BuildContext context) => PopupMenuButton<void Function()>(
+        offset: const Offset(-100, 0),
+        onSelected: (void Function() action) => action(),
+        onCanceled: () => Navigator.pop(context),
+        itemBuilder: (BuildContext context) => [
+          PopupMenuItem(
+              value: () {},
+              child: Row(
+                children: [
+                  Text('Deck:  '),
+                  DropdownButton(
+                      value: lastDeckSelected,
+                      // icon: const Icon(Icons.arrow_downward),
+                      onChanged: (Deck? deck) => _changeDeck(context, deck),
+                      items: widget.assets.decks
+                          .map((v) => DropdownMenuItem(
+                              value: v, child: Text(v.deckName)))
+                          .toList()),
+                ],
+              )),
+          CheckedPopupMenuItem(
+              checked: settings.cacheCardImages,
+              value: () => _changeCacheCardImages(context),
+              child: const Text('Cache Card Images')),
+          CheckedPopupMenuItem(
+              checked: true,
+              value: () => null,
+              child: const Text('Automatic Play')),
+        ],
+        child: Row(
+          children: [
+            Text('Settings'),
+            const Spacer(),
+            const Icon(Icons.arrow_right, size: 30.0),
+          ],
+        ),
+      );
+
+  void _changeCacheCardImages(BuildContext context) {
     setState(() {
       settings.cacheCardImages = !settings.cacheCardImages;
       unawaited(settings.write());
-      painter = painter?.withNewCacheCards(settings.cacheCardImages);
+      painter =
+          painter?.withNewCacheCards(settings.cacheCardImages);
     });
+    Navigator.pop(context);
   }
 
   void _changeDeck(BuildContext context, Deck? newDeck) {
@@ -268,6 +318,165 @@ class _MainWindowState extends State<MainWindow> {
       });
     }
     Navigator.pop(context);
+  }
+}
+
+class ButtonArea extends StatelessWidget {
+  final _MainWindowState state;
+  final double? height;
+  final double? width;
+  final double? maxWidth;
+  final double? maxHeight;
+
+  ButtonArea(
+      {Key? key,
+      required this.state,
+      this.height,
+      this.width,
+      this.maxWidth,
+      this.maxHeight})
+      : super(key: key) {
+    assert(height != null || width != null);
+  }
+
+  bool get isHorizontal => height != null;
+  static final TextStyle _style = TextStyle(
+      fontSize: 18, fontFamily: 'Helvetica', color: Settings.foregroundColor);
+
+  @override
+  Widget build(BuildContext context) {
+    if (width != null) {
+      final h = maxHeight ?? 10000.0;
+      return Container(
+          height: 5000,
+          width: width,
+          color: Color(0xff00270a),
+          child: Padding(
+              padding: EdgeInsets.fromLTRB(8, 60, 0, 0),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ...(h > 270
+                        ? [
+                            SizedBox(height: 45),
+                            Center(
+                                child: Padding(
+                                    padding: EdgeInsets.fromLTRB(0, 0, 8, 0),
+                                    child: ElevatedButton(
+                                      onPressed: () {},
+                                      child: Text(
+                                        'New Game',
+                                      ), // color: Settings.foregroundColor),
+                                    ))),
+                            SizedBox(height: 45),
+                          ]
+                        : []),
+                    Text(' Wins:', style: _style, textAlign: TextAlign.left),
+                    Text('   99999', style: _style, textAlign: TextAlign.left),
+                    Text(' ', style: _style),
+                    Text(' Losses:', style: _style),
+                    Text('   0', style: _style),
+                    ...(h > 385
+                        ? [
+                            SizedBox(height: 35),
+                            Row(children: [
+                              Padding(
+                                  padding: EdgeInsets.fromLTRB(5, 0, 0, 0),
+                                  child: SizedBox(
+                                      width: 40,
+                                      child: ElevatedButton(
+                                        onPressed: () {},
+                                        child: Icon(
+                                          Icons.arrow_back,
+                                        ), // color: Settings.foregroundColor),
+                                      ))),
+                              Padding(
+                                  padding: EdgeInsets.fromLTRB(15, 0, 0, 0),
+                                  child: SizedBox(
+                                      width: 40,
+                                      child: ElevatedButton(
+                                        onPressed: () {},
+                                        child: Icon(
+                                          Icons.arrow_forward,
+                                        ), // color: Settings.foregroundColor),
+                                      ))),
+                            ]),
+                            SizedBox(height: 20),
+                            Padding(
+                                padding: EdgeInsets.fromLTRB(15, 0, 0, 0),
+                                child: SizedBox(
+                                    width: 70,
+                                    child: ElevatedButton(
+                                        onPressed: () {},
+                                        child: Text(r'¯\_(ツ)_/¯',
+                                            style: TextStyle(fontSize: 10))))),
+                          ]
+                        : []),
+                  ])));
+    } else if (height != null) {
+      final w = maxWidth ?? 10000.0;
+      return Container(
+          height: height!,
+          width: 50000,
+          color: Color(0xff00270a),
+          child: Center(
+              child: Row(children: [
+            SizedBox(width: 45),
+            Spacer(),
+            ...(w > 630
+                ? [
+                    ElevatedButton(
+                        onPressed: () {},
+                        child: Text(
+                          'New Game',
+                        )), // color: Settings.foregroundColor),
+                    Spacer(),
+                  ]
+                : []),
+            SizedBox(
+              width: 250,
+              child: Center(
+                  child: Text('Wins:  99999   Losses: 0', style: _style)),
+            ),
+            Spacer(),
+            ...(w > 510
+                ? [
+                    Padding(
+                        padding: EdgeInsets.fromLTRB(0, 0, 0, 0),
+                        child: SizedBox(
+                            width: 40,
+                            child: ElevatedButton(
+                              onPressed: () {},
+                              child: Icon(
+                                Icons.arrow_back,
+                              ), // color: Settings.foregroundColor),
+                            ))),
+                    Padding(
+                        padding: EdgeInsets.fromLTRB(15, 0, 0, 0),
+                        child: SizedBox(
+                            width: 60,
+                            child: ElevatedButton(
+                                onPressed: () {},
+                                child: Text(r'¯\_(ツ)_/¯',
+                                    style: TextStyle(fontSize: 9))))),
+                    Padding(
+                        padding: EdgeInsets.fromLTRB(15, 0, 0, 0),
+                        child: SizedBox(
+                            width: 40,
+                            child: ElevatedButton(
+                              onPressed: null,
+                              child: Icon(
+                                Icons.arrow_forward,
+                              ), // color: Settings.foregroundColor),
+                            ))),
+                  ]
+                : []),
+            Spacer(),
+            SizedBox(width: 40)
+          ])));
+    } else {
+      throw 'Internal error';
+    }
   }
 }
 
@@ -427,19 +636,21 @@ Widget _showPerformance(BuildContext context, List<double>? paintTimes) {
 class GameWidget extends StatefulWidget {
   final Assets assets;
   final GamePainter painter;
+  final Game game;
 
-  GameWidget(this.assets, this.painter, {Key? key}) : super(key: key);
+  GameWidget(this.assets, this.game, this.painter, {Key? key})
+      : super(key: key);
 
   @override
-  GameState createState() => GameState(assets);
+  GameState createState() => GameState(assets, game);
 }
 
 class GameState extends State<GameWidget> {
-  GameController controller = Freecell().makeController();
-  Assets assets;
+  final GameController controller;
+  final Assets assets;
   bool needsPaint = false;
 
-  GameState(this.assets);
+  GameState(this.assets, Game game) : controller = game.makeController();
 
   @override
   void initState() {
@@ -471,8 +682,7 @@ class GameState extends State<GameWidget> {
     return GestureDetector(
         onTapDown: (e) => controller.clickStart(e.localPosition),
         onTap: () => controller.click(),
-        onDoubleTapDown: (e) =>
-            controller.doubleClickStart(e.localPosition),
+        onDoubleTapDown: (e) => controller.doubleClickStart(e.localPosition),
         onDoubleTap: () => controller.doubleClick(),
         onPanStart: (e) => controller.dragStart(e.localPosition),
         onPanUpdate: (e) => controller.dragMove(e.localPosition),

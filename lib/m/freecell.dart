@@ -25,14 +25,14 @@ import 'package:aisleriot/graphics.dart';
 
 import 'game.dart';
 
-abstract class _FreecellGenericSlot extends SlotWithCards {
+abstract class _FreecellGenericSlot extends Slot {
   /// Is moving movable to us?
   bool movableTo(_SlotStack moving, Freecell game);
 
   bool canSelect(_SlotStack cards, Freecell game);
 }
 
-typedef _SlotStack = SlotStack<_FreecellGenericSlot>;
+typedef _SlotStack = CardStack<_FreecellGenericSlot>;
 typedef _Move = Move<_FreecellGenericSlot>;
 typedef _FoundCard = FoundCard<_FreecellGenericSlot>;
 
@@ -43,7 +43,7 @@ class _FreecellSlot extends NormalSlot implements _FreecellGenericSlot {
   /// movable-to-freecell?
   @override
   bool movableTo(_SlotStack moving, Freecell game) =>
-      isEmpty && moving.length == 1;
+      isEmpty && moving.numCards == 1;
 }
 
 class _HomecellSlot extends NormalSlot implements _FreecellGenericSlot {
@@ -53,15 +53,14 @@ class _HomecellSlot extends NormalSlot implements _FreecellGenericSlot {
   /// movable-to-homecell?
   @override
   bool movableTo(_SlotStack moving, Freecell game) {
-    if (moving.slot == this || moving.length != 1) {
+    if (moving.slot == this || moving.numCards != 1) {
       return false;
     }
-    final card = moving.first;
+    final card = moving.slot.top;
     if (isEmpty) {
       return card.value == 1;
     } else {
-      final topCard = cards.last;
-      return topCard.suit == card.suit && topCard.value + 1 == card.value;
+      return top.suit == card.suit && top.value + 1 == card.value;
     }
   }
 }
@@ -78,7 +77,7 @@ class _FieldSlot extends ExtendedSlot implements _FreecellGenericSlot {
     if (moving.slot == this) {
       return false;
     }
-    if (moving.length >
+    if (moving.numCards >
         (game.emptyFreecellCount() + 1) *
             pow(2, game.emptyFieldCount() - (isEmpty ? 1 : 0))) {
       // Note:  freecell.scm has a bit of code here that does nothing:
@@ -87,7 +86,7 @@ class _FieldSlot extends ExtendedSlot implements _FreecellGenericSlot {
       //        And because of that, the max() does nothing.
       return false;
     }
-    return isEmpty || game.fieldJoinQ(moving.first, cards.last);
+    return isEmpty || game.fieldJoinQ(top, moving.bottom);
   }
 }
 
@@ -100,7 +99,7 @@ class Freecell extends Game<_FreecellGenericSlot> {
       {required this.freecell,
       required this.homecell,
       required this.field,
-      required List<Slot> slots})
+      required List<SlotOrLayout> slots})
       : super(slots);
 
   factory Freecell() {
@@ -110,11 +109,11 @@ class Freecell extends Game<_FreecellGenericSlot> {
     final field = List.generate(8, (_) => _FieldSlot(), growable: false);
     int f = 0;
     while (!d.isEmpty) {
-      field[f].cards.add(d.dealCard());
+      field[f].addCard(d.dealCard());
       f++;
       f %= field.length;
     }
-    final allSlots = List<Slot>.empty(growable: true);
+    final allSlots = List<SlotOrLayout>.empty(growable: true);
     allSlots.add(CarriageReturnSlot(extraHeight: 0.3));
     allSlots.add(HorizontalSpaceSlot(0.4));
     for (final s in freecell) {
@@ -149,17 +148,17 @@ class Freecell extends Game<_FreecellGenericSlot> {
   List<_Move> doubleClick(_SlotStack s) {
     if (canSelect(s)) {
       final eligibleValue = minimumHomecellValue() + 2;
-      final Card card = s.last;
+      final Card card = s.slot.top;
       if (card.value <= eligibleValue) {
         for (final dest in homecell) {
           if (dest.movableTo(s, this)) {
-            return [_Move(src: s.slot, dest: dest)];
+            return [_Move(src: s, dest: dest)];
           }
         }
       }
       for (final dest in freecell) {
         if (dest.movableTo(s, this)) {
-          return [_Move(src: s.slot, dest: dest)];
+          return [_Move(src: s, dest: dest)];
         }
       }
     }
@@ -168,20 +167,20 @@ class Freecell extends Game<_FreecellGenericSlot> {
 
   /// 0 (one less than ace) on empty
   int minimumHomecellValue() =>
-      homecell.fold(99, (a, v) => min(a, v.cards.length));
+      homecell.fold(99, (a, _HomecellSlot v) => min(a, v.numCards));
 
   /// field-join?
   bool fieldJoinQ(Card lower, Card upper) =>
-      lower.suit.color != upper.suit.color && lower.value + 1 == upper.value;
+      lower.suit.color != upper.suit.color && lower.value == upper.value + 1;
 
   /// field-sequence?
-  bool fieldSequenceQ(List<Card> cards) {
-    for (int i = 0; i < cards.length - 1; i++) {
-      if (!fieldJoinQ(cards[i + 1], cards[i])) {
-        return false;
-      }
-    }
-    return true;
+  bool fieldSequenceQ(_SlotStack cards) {
+    Card? upper;
+    return cards.slot.allTrueFromTop((card) {
+      final u = upper;
+      upper = card;
+      return u == null || fieldJoinQ(card, u);
+    }, maxCards: cards.numCards);
   }
 
   /// empty-field-number
@@ -196,11 +195,11 @@ class Freecell extends Game<_FreecellGenericSlot> {
     final eligibleValue = minimumHomecellValue() + 2;
     _Move? check(_FreecellGenericSlot slot) {
       if (slot.isNotEmpty) {
-        final stack = _SlotStack(slot, slot.cards.length-1);
-        if (stack.first.value <= eligibleValue) {
+        if (slot.top.value <= eligibleValue) {
+          final stack = CardStack(slot, 1, slot.top);
           for (final dest in homecell) {
             if (dest.movableTo(stack, this)) {
-              return _Move(src: slot, dest: dest);
+              return _Move(src: stack, dest: dest);
             }
           }
         }

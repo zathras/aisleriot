@@ -26,29 +26,29 @@ import 'package:aisleriot/graphics.dart';
 
 import '../controller.dart';
 
-abstract class Game<CS extends SlotWithCards> {
-  final List<Slot> slots;
+abstract class Game<ST extends Slot> {
+  final List<SlotOrLayout> slots;
 
-  Game(List<Slot> slots) : slots = List.unmodifiable(slots) {
+  Game(List<SlotOrLayout> slots) : slots = List.unmodifiable(slots) {
     assert(slots.last is CarriageReturnSlot);
     for (final s in slots) {
-      assert((!(s is SlotWithCards)) || (s is CS));
+      assert((!(s is Slot)) || (s is ST));
     }
   }
 
-  GameController<CS> makeController() => GameController<CS>(this);
+  GameController<ST> makeController() => GameController<ST>(this);
 
   /// button-pressed
-  bool canSelect(SlotStack<CS> s);
+  bool canSelect(CardStack<ST> s);
 
-  List<Move<CS>> doubleClick(SlotStack<CS> s);
+  List<Move<ST>> doubleClick(CardStack<ST> s);
 
-  bool canDrop(FoundCard<CS> card, CS dest);
+  bool canDrop(FoundCard<ST> card, ST dest);
 
-  List<Move<CS>> automaticMoves();
+  List<Move<ST>> automaticMoves();
 }
 
-abstract class Slot {
+abstract class SlotOrLayout {
   void visit(
       {void Function(NormalSlot)? normal,
       void Function(ExtendedSlot)? extended,
@@ -56,21 +56,47 @@ abstract class Slot {
       void Function(HorizontalSpaceSlot)? horizontalSpace});
 }
 
-/// A slot that is visible and holds cards (and not a pseudo-slot)
-abstract class SlotWithCards extends Slot {
+/// A slot that is visible and holds cards
+abstract class Slot extends SlotOrLayout {
   /// Horizontal position offset, in fraction of a card width.  I *think* that's
   /// the same units as Aisleriot's HORIZPOZ in the Scheme files.
-  final cards = List<Card>.empty(growable: true);
+  final _cards = List<Card>.empty(growable: true);
 
-  SlotWithCards();
+  Slot();
 
-  bool get isEmpty => cards.isEmpty;
-  bool get isNotEmpty => cards.isNotEmpty;
+  bool get isEmpty => _cards.isEmpty;
+  bool get isNotEmpty => _cards.isNotEmpty;
+
+  Card get top => _cards[_cards.length - 1];
+
+  Card? get belowTop => _cards.length > 1 ? _cards[_cards.length - 1] : null;
+
+  int get numCards => _cards.length;
+
+  void moveStackTo(CardStack stack, Slot dest) {
+    dest._cards.addAll(_cards.getRange(_cards.length - stack.numCards, _cards.length));
+    _cards.length -= stack.numCards;
+  }
+
+  void addCard(Card dealt) => _cards.add(dealt);
+
+  bool allTrueFromTop(bool Function(Card) f, { int maxCards = 9999 }) {
+    if (maxCards == 9999) {
+      maxCards = numCards;
+    }
+    final last = _cards.length - 1;
+    for (int i = 0; i < maxCards; i++) {
+      if (!f(_cards[last - i])) {
+        return false;
+      }
+    }
+    return true;
+  }
 }
 
-/// A slot in which the topmost card is visible.  To be extended by
-/// a game.
-abstract class NormalSlot extends SlotWithCards {
+/// A slot in which the topmost card is visible.  To be extended or implemented
+/// by a game.
+abstract class NormalSlot extends Slot {
   NormalSlot();
 
   @override
@@ -84,7 +110,7 @@ abstract class NormalSlot extends SlotWithCards {
 
 /// A slot in which all the cards are visible, arranged as an
 /// overlapped pile, proceeding down.  To be extended by a game.
-abstract class ExtendedSlot extends SlotWithCards {
+abstract class ExtendedSlot extends Slot {
   ExtendedSlot({double horizPosOffset = 0});
 
   @override
@@ -94,10 +120,16 @@ abstract class ExtendedSlot extends SlotWithCards {
           void Function(CarriageReturnSlot)? cr,
           void Function(HorizontalSpaceSlot)? horizontalSpace}) =>
       (extended == null) ? null : extended(this);
+
+  void visitCardsFromBottom(void Function(Card card) f) {
+    for (int i = 0; i < _cards.length; i++) {
+      f(_cards[i]);
+    }
+  }
 }
 
 /// The carriage-return pseudo slot
-class CarriageReturnSlot extends Slot {
+class CarriageReturnSlot extends SlotOrLayout {
   /// Height beyond the stacks in our row, in card-heights.
   final double extraHeight;
 
@@ -112,7 +144,7 @@ class CarriageReturnSlot extends Slot {
       (cr == null) ? null : cr(this);
 }
 
-class HorizontalSpaceSlot extends Slot {
+class HorizontalSpaceSlot extends SlotOrLayout {
   final double width;
 
   HorizontalSpaceSlot(this.width);
@@ -174,38 +206,44 @@ class Suit {
 
 enum CardColor { red, black }
 
+
+/// A stack of one or more cards taken from the top of a slot.  The "top"
+/// is painted lowest on the screen, over the lower cards.
+class CardStack<ST extends Slot> {
+  final ST slot;
+  final int numCards;
+  /// The bottom of the stack (painted highest on the screen, under the other
+  /// cards).
+  final Card bottom;
+
+  CardStack(this.slot, this.numCards, this.bottom);
+}
+
 ///
 /// A stack of one or more cards pulled from a slot
 ///
-class SlotStack<CS extends SlotWithCards>
+class SlotStack<ST extends Slot>
     with ListMixin<Card>
     implements List<Card> {
-  final CS slot;
-  final int cardNumber;
+  final ST slot;
+  final int numCards;
 
-  SlotStack(this.slot, this.cardNumber);
+  SlotStack(this.slot, this.numCards);
+
+  int get cardNumber => slot._cards.length - numCards;
 
   @override
-  String toString() => slot.cards[cardNumber].toString();
+  String toString() => slot._cards[cardNumber].toString();
 
   @override
-  int get length => slot.cards.length - cardNumber;
-
-  CardList? toLispList() {
-    CardList? node;
-    for (int i = cardNumber; i < slot.cards.length; i++) {
-      final n = CardList(slot.cards[i], node);
-      node = n;
-    }
-    return node;
-  }
+  int get length => numCards;
 
   @override
   Card operator [](int i) {
     if (i < 0) {
       throw IndexError(i, this);
     }
-    return slot.cards[i + cardNumber];
+    return slot._cards[i + cardNumber];
   }
 
   @override
@@ -220,41 +258,23 @@ class SlotStack<CS extends SlotWithCards>
 }
 
 ///
-/// A Scheme-like list for the list of cards.  Car is the lowest
-/// card on the stack, and the end of the list is the highest (that is,
-/// the one being moved in a supermove).
-///
-class CardList {
-  Card car;
-  CardList? cdr;
-
-  CardList(this.car, this.cdr);
-
-  Card get cadr => cdr!.car;
-}
-
-///
 /// Move the cards from [src] to [dest].
 ///
-class Move<CS extends SlotWithCards> {
-  final CS src;
-  final CS dest;
-  final int numCards;
+class Move<ST extends Slot> {
+  final CardStack<ST> src;
+  final ST dest;
   final bool animate;
 
   Move(
       {required this.src,
       required this.dest,
-      this.numCards = 1,
       this.animate = true});
 
-  Card get topMovingCard => src.cards[src.cards.length - numCards];
+  ST get slot => src.slot;
 
-  void move() {
-    final sl = src.cards;
-    for (int i = sl.length - numCards; i < sl.length; i++) {
-      dest.cards.add(sl[i]);
-    }
-    sl.length -= numCards;
-  }
+  Card get bottom => src.bottom;
+
+  int get numCards => src.numCards;
+
+  void move() => src.slot.moveStackTo(src, dest);
 }
