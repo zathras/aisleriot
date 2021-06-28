@@ -34,7 +34,6 @@ import 'package:url_launcher/url_launcher.dart';
 import 'controller.dart';
 import 'constants.dart';
 import 'm/freecell.dart';
-import 'm/game.dart';
 
 void main() async {
   // Get there first!
@@ -153,7 +152,7 @@ class _MainWindowState extends State<MainWindow> {
   GamePainter? painter;
   Settings settings;
   bool _first = true;
-  Game game = Freecell();
+  GameController controller = Freecell().makeController();
 
   _MainWindowState(this.lastDeckSelected, this.settings);
 
@@ -202,7 +201,7 @@ class _MainWindowState extends State<MainWindow> {
                         ? const EdgeInsets.fromLTRB(120, 0, 0, 0)
                         : const EdgeInsets.fromLTRB(0, 60, 0, 0),
                     child: (p != null)
-                        ? GameWidget(widget.assets, game, p)
+                        ? GameWidget(widget.assets, controller, p)
                         : Container(
                             color: GamePainter.background,
                           ),
@@ -236,9 +235,19 @@ class _MainWindowState extends State<MainWindow> {
         onSelected: (void Function() action) => action(),
         itemBuilder: (BuildContext context) {
           return <PopupMenuEntry<void Function()>>[
-            PopupMenuItem(enabled: true, value: () {}, child: Row(children: [Icon(Icons.arrow_back), Text(' Undo')])),
-            PopupMenuItem(enabled: true, value: () {}, child: Text(r'¯\_(ツ)_/¯  Solve')),
-            PopupMenuItem(enabled: true, value: () {}, child: Row(children: [Icon(Icons.arrow_forward), Text(' Redo')])),
+            PopupMenuItem(
+                enabled: true,
+                value: () {},
+                child: Row(children: [Icon(Icons.arrow_back), Text(' Undo')])),
+            PopupMenuItem(
+                enabled: true,
+                value: () => controller.solve(),
+                child: Text(r'¯\_(ツ)_/¯  Solve')),
+            PopupMenuItem(
+                enabled: true,
+                value: () {},
+                child:
+                    Row(children: [Icon(Icons.arrow_forward), Text(' Redo')])),
             PopupMenuItem(enabled: true, value: () {}, child: Text('New Game')),
             PopupMenuItem(value: () {}, child: _settingsMenu(context)),
             PopupMenuItem(
@@ -249,7 +258,8 @@ class _MainWindowState extends State<MainWindow> {
         },
       );
 
-  PopupMenuButton _settingsMenu(BuildContext context) => PopupMenuButton<void Function()>(
+  PopupMenuButton _settingsMenu(BuildContext context) =>
+      PopupMenuButton<void Function()>(
         offset: const Offset(-100, 0),
         onSelected: (void Function() action) => action(),
         onCanceled: () => Navigator.pop(context),
@@ -291,8 +301,7 @@ class _MainWindowState extends State<MainWindow> {
     setState(() {
       settings.cacheCardImages = !settings.cacheCardImages;
       unawaited(settings.write());
-      painter =
-          painter?.withNewCacheCards(settings.cacheCardImages);
+      painter = painter?.withNewCacheCards(settings.cacheCardImages);
     });
     Navigator.pop(context);
   }
@@ -407,7 +416,8 @@ class ButtonArea extends StatelessWidget {
                                 child: SizedBox(
                                     width: 70,
                                     child: ElevatedButton(
-                                        onPressed: () {},
+                                        onPressed: () =>
+                                            state.controller.solve(),
                                         child: Text(r'¯\_(ツ)_/¯',
                                             style: TextStyle(fontSize: 10))))),
                           ]
@@ -456,7 +466,7 @@ class ButtonArea extends StatelessWidget {
                         child: SizedBox(
                             width: 60,
                             child: ElevatedButton(
-                                onPressed: () {},
+                                onPressed: () => state.controller.solve(),
                                 child: Text(r'¯\_(ツ)_/¯',
                                     style: TextStyle(fontSize: 9))))),
                     Padding(
@@ -636,13 +646,13 @@ Widget _showPerformance(BuildContext context, List<double>? paintTimes) {
 class GameWidget extends StatefulWidget {
   final Assets assets;
   final GamePainter painter;
-  final Game game;
+  final GameController controller;
 
-  GameWidget(this.assets, this.game, this.painter, {Key? key})
+  GameWidget(this.assets, this.controller, this.painter, {Key? key})
       : super(key: key);
 
   @override
-  GameState createState() => GameState(assets, game);
+  GameState createState() => GameState(assets, controller);
 }
 
 class GameState extends State<GameWidget> {
@@ -650,7 +660,7 @@ class GameState extends State<GameWidget> {
   final Assets assets;
   bool needsPaint = false;
 
-  GameState(this.assets, Game game) : controller = game.makeController();
+  GameState(this.assets, this.controller);
 
   @override
   void initState() {

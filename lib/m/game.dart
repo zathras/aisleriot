@@ -23,8 +23,65 @@ import 'dart:collection';
 import 'dart:math';
 
 import 'package:aisleriot/graphics.dart';
+import 'package:quiver/core.dart' as quiver;
+import 'package:quiver/collection.dart' as quiver;
 
 import '../controller.dart';
+
+abstract class Board<ST extends Slot> {
+  final List<ST> _activeSlots;
+
+  Board(List<ST> activeSlots) : _activeSlots = List.unmodifiable(activeSlots) {
+    for (int i = 0; i < _activeSlots.length; i++) {
+      assert(i == _activeSlots[i].slotNumber);
+    }
+  }
+
+  bool get gameWon;
+
+  ST slotFromNumber(int slotNumber) => _activeSlots[slotNumber];
+
+  @override
+  int get hashCode => quiver.hashObjects(Iterable<int>.generate(
+      _activeSlots.length, (i) => _activeSlots[i].contentHash));
+
+  @override
+  bool operator ==(Object other) {
+    if (!(other is SearchBoard<ST>)) {
+      return false;
+    }
+    for (int i = 0; i < _activeSlots.length; i++) {
+      if (!_activeSlots[i].contentEquals(other._activeSlots[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// button-pressed
+  bool canSelect(CardStack<ST> s);
+
+  bool canDrop(FoundCard<ST> card, ST dest);
+
+  List<Move<ST>> automaticMoves();
+
+  SearchBoard<ST> toSearchBoard();
+}
+
+abstract class SearchBoard<ST extends Slot> extends Board<ST> {
+  SearchBoard(List<ST> activeSlots) : super(activeSlots);
+
+  /// Get a 32 bit signed integer saying how good this solution is.
+  /// Bigger values are better.
+  int get goodness;
+  SearchBoard<ST>? get from;
+  Move<ST>? get via;
+
+  @override
+  SearchBoard<ST> toSearchBoard() => this;
+
+  void calculateChildren(covariant void Function(SearchBoard<ST> child) f);
+}
 
 abstract class Game<ST extends Slot> {
   final List<SlotOrLayout> slots;
@@ -38,14 +95,9 @@ abstract class Game<ST extends Slot> {
 
   GameController<ST> makeController() => GameController<ST>(this);
 
-  /// button-pressed
-  bool canSelect(CardStack<ST> s);
+  Board<ST> get board;
 
   List<Move<ST>> doubleClick(CardStack<ST> s);
-
-  bool canDrop(FoundCard<ST> card, ST dest);
-
-  List<Move<ST>> automaticMoves();
 }
 
 abstract class SlotOrLayout {
@@ -58,11 +110,14 @@ abstract class SlotOrLayout {
 
 /// A slot that is visible and holds cards
 abstract class Slot extends SlotOrLayout {
-  /// Horizontal position offset, in fraction of a card width.  I *think* that's
-  /// the same units as Aisleriot's HORIZPOZ in the Scheme files.
-  final _cards = List<Card>.empty(growable: true);
+  final List<Card> _cards;
 
-  Slot();
+  final int slotNumber;
+
+  Slot(this.slotNumber, {Slot? copyFrom})
+      : _cards = copyFrom == null
+            ? List<Card>.empty(growable: true)
+            : List<Card>.from(copyFrom._cards, growable: true);
 
   bool get isEmpty => _cards.isEmpty;
   bool get isNotEmpty => _cards.isNotEmpty;
@@ -74,30 +129,29 @@ abstract class Slot extends SlotOrLayout {
   int get numCards => _cards.length;
 
   void moveStackTo(CardStack stack, Slot dest) {
-    dest._cards.addAll(_cards.getRange(_cards.length - stack.numCards, _cards.length));
+    dest._cards
+        .addAll(_cards.getRange(_cards.length - stack.numCards, _cards.length));
     _cards.length -= stack.numCards;
   }
 
   void addCard(Card dealt) => _cards.add(dealt);
 
-  bool allTrueFromTop(bool Function(Card) f, { int maxCards = 9999 }) {
-    if (maxCards == 9999) {
-      maxCards = numCards;
-    }
-    final last = _cards.length - 1;
-    for (int i = 0; i < maxCards; i++) {
-      if (!f(_cards[last - i])) {
-        return false;
-      }
-    }
-    return true;
-  }
+  Iterable<Card> get fromTop =>
+      Iterable.generate(_cards.length, (i) => _cards[_cards.length - 1 - i]);
+
+  Iterable<Card> get fromBottom =>
+      Iterable.generate(_cards.length, (i) => _cards[i]);
+
+  int get contentHash => quiver.hashObjects(_cards);
+
+  bool contentEquals(Slot other) => quiver.listsEqual(_cards, other._cards);
 }
 
 /// A slot in which the topmost card is visible.  To be extended or implemented
 /// by a game.
 abstract class NormalSlot extends Slot {
-  NormalSlot();
+  NormalSlot(int slotNumber, {NormalSlot? copyFrom})
+      : super(slotNumber, copyFrom: copyFrom);
 
   @override
   void visit(
@@ -111,7 +165,9 @@ abstract class NormalSlot extends Slot {
 /// A slot in which all the cards are visible, arranged as an
 /// overlapped pile, proceeding down.  To be extended by a game.
 abstract class ExtendedSlot extends Slot {
-  ExtendedSlot({double horizPosOffset = 0});
+  ExtendedSlot(int slotNumber,
+      {ExtendedSlot? copyFrom, double horizPosOffset = 0})
+      : super(slotNumber, copyFrom: copyFrom);
 
   @override
   void visit(
@@ -120,12 +176,6 @@ abstract class ExtendedSlot extends Slot {
           void Function(CarriageReturnSlot)? cr,
           void Function(HorizontalSpaceSlot)? horizontalSpace}) =>
       (extended == null) ? null : extended(this);
-
-  void visitCardsFromBottom(void Function(Card card) f) {
-    for (int i = 0; i < _cards.length; i++) {
-      f(_cards[i]);
-    }
-  }
 }
 
 /// The carriage-return pseudo slot
@@ -160,7 +210,15 @@ class HorizontalSpaceSlot extends SlotOrLayout {
 
 class Deck {
   static final _random = Random();
-  final _cards = List<Card>.generate(52, _generator, growable: true);
+  final cards = List<Card>.generate(52, _generator, growable: false);
+  List<Card>? _undealt;
+  List<Card> get undealt => _undealt ?? (_undealt = List.from(cards));
+
+  Deck() {
+    for (int i = 0; i < cards.length; i++) {
+      assert(cards[i].index == i);
+    }
+  }
 
   static Card _generator(int index) {
     Suit s = Suit.values[index ~/ 13];
@@ -168,9 +226,9 @@ class Deck {
     return Card(v, s);
   }
 
-  bool get isEmpty => _cards.isEmpty;
+  bool get isEmpty => undealt.isEmpty;
 
-  Card dealCard() => _cards.removeAt(_random.nextInt(_cards.length));
+  Card dealCard() => undealt.removeAt(_random.nextInt(undealt.length));
 }
 
 class Card {
@@ -198,7 +256,7 @@ class Suit {
   static const heart = Suit._p(2, CardColor.red, 'Hearts');
   static const spade = Suit._p(3, CardColor.black, 'Spades');
 
-  static List<Suit> values = [spade, diamond, heart, club];
+  static List<Suit> values = [club, diamond, heart, spade];
 
   @override
   String toString() => 'Suit($name)';
@@ -206,12 +264,12 @@ class Suit {
 
 enum CardColor { red, black }
 
-
 /// A stack of one or more cards taken from the top of a slot.  The "top"
 /// is painted lowest on the screen, over the lower cards.
 class CardStack<ST extends Slot> {
   final ST slot;
   final int numCards;
+
   /// The bottom of the stack (painted highest on the screen, under the other
   /// cards).
   final Card bottom;
@@ -222,39 +280,13 @@ class CardStack<ST extends Slot> {
 ///
 /// A stack of one or more cards pulled from a slot
 ///
-class SlotStack<ST extends Slot>
-    with ListMixin<Card>
-    implements List<Card> {
+class SlotStack<ST extends Slot> {
   final ST slot;
   final int numCards;
 
   SlotStack(this.slot, this.numCards);
 
   int get cardNumber => slot._cards.length - numCards;
-
-  @override
-  String toString() => slot._cards[cardNumber].toString();
-
-  @override
-  int get length => numCards;
-
-  @override
-  Card operator [](int i) {
-    if (i < 0) {
-      throw IndexError(i, this);
-    }
-    return slot._cards[i + cardNumber];
-  }
-
-  @override
-  void operator []=(int index, Card value) {
-    throw UnimplementedError('read-only list');
-  }
-
-  @override
-  set length(int newLength) {
-    throw UnimplementedError('read-only list');
-  }
 }
 
 ///
@@ -265,10 +297,7 @@ class Move<ST extends Slot> {
   final ST dest;
   final bool animate;
 
-  Move(
-      {required this.src,
-      required this.dest,
-      this.animate = true});
+  Move({required this.src, required this.dest, this.animate = true});
 
   ST get slot => src.slot;
 

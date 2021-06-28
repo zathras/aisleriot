@@ -18,10 +18,13 @@
 */
 
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math';
 import 'dart:ui' as ui;
 
+import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart' as ui;
+import 'package:pedantic/pedantic.dart';
 
 import 'graphics.dart';
 import 'm/game.dart';
@@ -135,7 +138,7 @@ class GameController<ST extends Slot> extends ui.ChangeNotifier {
   void dragStart(ui.Offset pos) {
     pos = addPaintOffset(pos);
     final f = _finder.find(pos, this);
-    if (f != null && game.canSelect(f)) {
+    if (f != null && game.board.canSelect(f)) {
       _finishPending();
       drag = Drag(f, pos);
       notifyListeners();
@@ -162,7 +165,9 @@ class GameController<ST extends Slot> extends ui.ChangeNotifier {
       final area = d.card.area
           .translate(d.current.dx - d.start.dx, d.current.dy - d.start.dy);
       final ST? dest = _finder.findSlot(area, this);
-      if (dest != null && dest != d.card.slot && game.canDrop(d.card, dest)) {
+      if (dest != null &&
+          dest != d.card.slot &&
+          game.board.canDrop(d.card, dest)) {
         d.card.slot.moveStackTo(d, dest);
         doAutomaticMoves();
       }
@@ -177,15 +182,61 @@ class GameController<ST extends Slot> extends ui.ChangeNotifier {
 
   void doAutomaticMoves() {
     assert(_inFlight == null);
-    final newMoves = game.automaticMoves();
+    final newMoves = game.board.automaticMoves();
     if (newMoves.isNotEmpty) {
       _inFlight = _GameAnimation(this, newMoves);
+      notifyListeners();
     }
   }
 
   ui.Offset addPaintOffset(ui.Offset pos) => (_painter.lastPaintOffset == 0.0)
       ? pos
       : ui.Offset(pos.dx - _painter.lastPaintOffset, pos.dy);
+
+  void solve() {
+    final search = game.board.toSearchBoard();
+    painter.currentSearch = search;
+    notifyListeners();
+    final q =
+        PriorityQueue<SearchBoard>((a, b) => b.goodness.compareTo(a.goodness));
+    final seen = Set<SearchBoard>();
+    search.calculateChildren((k) {
+      seen.add(k);
+      q.add(k);
+      seen.add(k);
+    });
+    unawaited(() async {
+      int iterations = 0;
+      double displayEvery = 0.5;
+      int undisplayed = 1;
+      while (q.isNotEmpty) {
+        final k = q.removeFirst();
+        if (undisplayed > displayEvery) {
+          undisplayed = 0;
+          displayEvery = min(200, displayEvery * 1.5);
+          await Future<void>.delayed(Duration(milliseconds: 40));
+          painter.currentSearch = k;
+          notifyListeners();
+          print("@@ $iterations iterations");
+        } else {
+          undisplayed++;
+        }
+        if (k.gameWon) {
+          print("@@ We win!  $iterations iterations.");
+          painter.currentSearch = k;
+          notifyListeners();
+          break;
+        }
+        iterations++;
+        k.calculateChildren((kk) {
+          if (seen.add(kk)) {
+            q.add(kk);
+          }
+        });
+      }
+      print("@@ Done ");
+    }());
+  }
 }
 
 abstract class MovingStack<ST extends Slot> implements CardStack<ST> {

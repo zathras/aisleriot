@@ -156,6 +156,8 @@ class GamePainter {
   /// Paint times, in seconds
   final paintTimes = CircularBuffer(Float64List(100));
 
+  SearchBoard? currentSearch;
+
   GamePainter._p(_GamePainterCards cards, {required bool cacheCards})
       : _cards = cards,
         layout = _BoardLayout(cards.im.first.first.viewport),
@@ -220,10 +222,10 @@ class GamePainter {
   }
 
   static const ui.Color background = ui.Color(0xff004c0e);
+  static const searchBackground = ui.Color(0xff000070);
+  static const unsolvableBackground = ui.Color(0xff600912);
   static const maxAspectRatio = 1.5;
 
-  /// Aspect ratio of a card, taken from guyenne-classic.  It's close enough
-  /// for the other decks.
   static final blankCardPaint = ui.Paint()..color = ui.Color(0x40ffffff);
 
   void paint(ui.Canvas c, ui.Size size, GameController controller) {
@@ -239,14 +241,15 @@ class GamePainter {
     Stopwatch sw = Stopwatch()..start();
     MovingStack? moving;
     final afterCards = List<void Function()>.empty(growable: true);
-    void paintCardSpace(Slot slot, Card? card, ui.Rect space, bool showHidden, Card? hidden) {
+    void paintCardSpace(
+        Slot slot, Card? card, ui.Rect space, bool showHidden, Card? hidden) {
       if (card != null) {
         final ScalableImage im = _cards.im[card.suit.row][card.value - 1];
         final move = controller.movement;
         if (move?.bottom == card) {
           moving = move;
         } else {
-          showHidden = false;   // Because we completely cover space
+          showHidden = false; // Because we completely cover space
         }
         final d = moving;
         if (d != null && d.slot == slot) {
@@ -272,8 +275,12 @@ class GamePainter {
       }
     }
 
-    c.drawColor(background, ui.BlendMode.src);
-    layout.visitCards(controller, paintCardSpace);
+    if (currentSearch != null) {
+      c.drawColor(searchBackground, ui.BlendMode.src);
+    } else {
+      c.drawColor(background, ui.BlendMode.src);
+    }
+    layout.visitCards(controller, paintCardSpace, currentSearch);
     for (final f in afterCards) {
       f();
     }
@@ -406,7 +413,7 @@ class CardFinder<ST extends Slot> {
     ui.Rect? area;
     layout.visitCards(c, (Slot slot, Card? card, ui.Rect space, _, __) {
       if (space.contains(pos)) {
-        foundSlot = slot as ST;   // Game has an assert that makes this safe
+        foundSlot = slot as ST; // Game has an assert that makes this safe
         bottom = card;
         numCards = 1;
         area = space;
@@ -432,7 +439,7 @@ class CardFinder<ST extends Slot> {
         final a = overlap.width * overlap.height;
         if (a > overlapArea) {
           overlapArea = a;
-          foundSlot = slot as ST;   // Game has an assert that makes this safe
+          foundSlot = slot as ST; // Game has an assert that makes this safe
         }
       }
     }
@@ -529,14 +536,20 @@ class _BoardLayout {
     }
   }
 
-  void visitCards(GameController controller, _SpaceF spaceF) {
+  void visitCards(GameController controller, _SpaceF spaceF, [SearchBoard? search]) {
     visitSlots(controller, (NormalSlot slot, ui.Rect space) {
+      if (search != null) {
+        slot = search.slotFromNumber(slot.slotNumber) as NormalSlot;
+      }
       if (slot.isEmpty) {
         spaceF(slot, null, space, true, null);
       } else {
         spaceF(slot, slot.top, space, true, slot.belowTop);
       }
     }, (ExtendedSlot slot, double cardHeight, ui.Rect slotArea) {
+      if (search != null) {
+        slot = search.slotFromNumber(slot.slotNumber) as ExtendedSlot;
+      }
       if (slot.isEmpty) {
         final space = ui.Rect.fromLTWH(
             slotArea.left, slotArea.top, slotArea.width, cardHeight);
@@ -550,14 +563,14 @@ class _BoardLayout {
         delta = max(delta, cardHeight / 24);
         Card? lastCard;
         int i = 0;
-        slot.visitCardsFromBottom((card) {
+        for (final card in slot.fromBottom) {
           final space = ui.Rect.fromLTWH(
               slotArea.left, slotArea.top + offset, slotArea.width, cardHeight);
           spaceF(slot, card, space, i == 0, lastCard);
           lastCard = card;
           offset += delta;
           i++;
-        });
+        };
       }
     });
   }

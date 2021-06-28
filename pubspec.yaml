@@ -12,7 +12,8 @@ dependencies:
   flutter:
     sdk: flutter
   pedantic: ^1.0.8
-  # quiver: ^3.0.1
+  collection: ^1.15.0
+  quiver: ^3.0.1
   # tuple: ^2.0.0
   shared_preferences: ^2.0.5
   jovial_svg: ^1.0.5
