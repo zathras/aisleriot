@@ -25,6 +25,8 @@ import 'dart:ui' as ui;
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart' as ui;
 import 'package:pedantic/pedantic.dart';
+import 'package:quiver/collection.dart' as quiver;
+import 'package:quiver/core.dart' as quiver;
 
 import 'graphics.dart';
 import 'm/game.dart';
@@ -125,7 +127,7 @@ class GameController<ST extends Slot> extends ui.ChangeNotifier {
     if (todo.isEmpty) {
       return;
     }
-    _inFlight = _GameAnimation(this, todo);
+    _inFlight = _GameAnimation(this, todo, () => doAutomaticMoves());
   }
 
   void clickStart(ui.Offset pos) {
@@ -168,7 +170,7 @@ class GameController<ST extends Slot> extends ui.ChangeNotifier {
       if (dest != null &&
           dest != d.card.slot &&
           game.board.canDrop(d.card, dest)) {
-        d.card.slot.moveStackTo(d, dest);
+        d.card.slot.moveStackTo(d.numCards, dest);
         doAutomaticMoves();
       }
     }
@@ -180,61 +182,204 @@ class GameController<ST extends Slot> extends ui.ChangeNotifier {
   void notifyListeners() => super.notifyListeners();
   // Make it public
 
-  void doAutomaticMoves() {
+  void doAutomaticMoves([void Function() onDone = _nop]) {
     assert(_inFlight == null);
     final newMoves = game.board.automaticMoves();
-    if (newMoves.isNotEmpty) {
-      _inFlight = _GameAnimation(this, newMoves);
+    if (newMoves.isEmpty) {
+      onDone();
+    } else {
+      _inFlight =
+          _GameAnimation(this, newMoves, () => doAutomaticMoves(onDone));
       notifyListeners();
     }
   }
+
+  static void _nop() {}
 
   ui.Offset addPaintOffset(ui.Offset pos) => (_painter.lastPaintOffset == 0.0)
       ? pos
       : ui.Offset(pos.dx - _painter.lastPaintOffset, pos.dy);
 
   void solve() {
-    final search = game.board.toSearchBoard();
-    painter.currentSearch = search;
-    notifyListeners();
-    final q =
-        PriorityQueue<SearchBoard>((a, b) => b.goodness.compareTo(a.goodness));
-    final seen = Set<SearchBoard>();
-    search.calculateChildren((k) {
-      seen.add(k);
+    final scratch = game.board.makeSearchBoard();
+    painter.currentSearch = scratch;
+    final initial = scratch.slotData;
+    print("@@ Solving ${scratch.toExternal()}");
+    final q = PriorityQueue<SearchSlotData>(
+        (a, b) => b.goodness.compareTo(a.goodness));
+    final seen = HashSet<List<int>>(
+        equals: quiver.listsEqual, hashCode: quiver.hashObjects);
+    scratch.doAllAutomaticMoves();
+    scratch.canonicalize();
+    seen.add(scratch.slotData.raw);
+    scratch.calculateChildren(scratch, (k) {
+      seen.add(k.raw);
       q.add(k);
-      seen.add(k);
     });
+    final sw = Stopwatch()..start();
+    double nextFrame = 0.25 * sw.frequency;
     unawaited(() async {
       int iterations = 0;
-      double displayEvery = 0.5;
-      int undisplayed = 1;
       while (q.isNotEmpty) {
         final k = q.removeFirst();
-        if (undisplayed > displayEvery) {
-          undisplayed = 0;
-          displayEvery = min(200, displayEvery * 1.5);
-          await Future<void>.delayed(Duration(milliseconds: 40));
-          painter.currentSearch = k;
+        if (sw.elapsedTicks > nextFrame) {
+          nextFrame += 0.25 * sw.frequency;
           notifyListeners();
           print("@@ $iterations iterations");
-        } else {
-          undisplayed++;
+          await Future<void>.delayed(Duration(milliseconds: 5));
         }
-        if (k.gameWon) {
-          print("@@ We win!  $iterations iterations.");
-          painter.currentSearch = k;
+        scratch.slotData = k;
+        if (scratch.gameWon) {
+          print(
+              "@@@@ ==> Found after $iterations iterations, duration ${sw.elapsed}.");
+          sw.stop();
           notifyListeners();
-          break;
+          await Future<void>.delayed(Duration(seconds: 1));
+          scratch.slotData = initial;
+          SearchSlotData? next = k;
+          final path = List.generate(k.depth + 1, (_) {
+            final sd = next!;
+            next = sd.from;
+            return sd;
+          });
+          final solution = Solution(path, scratch);
+          assert(next == null);
+          print("@@ Done - created ${seen.length} arrangements.");
+          painter.currentSearch = null;
+          solution.run(this);
+          return;
         }
         iterations++;
-        k.calculateChildren((kk) {
-          if (seen.add(kk)) {
+        scratch.calculateChildren(scratch, (kk) {
+          if (seen.add(kk.raw)) {
             q.add(kk);
           }
         });
       }
-      print("@@ Done ");
+    }());
+  }
+}
+
+///
+/// A solution of this game.  The data structure looks like this:
+/// <pre>
+///              from ┌──────┐      ┌──────┐          ┌──────┐         ┌──────┐
+///             ┌─────┤ null │ from │  m1  │   from   │  m2  │  from   │  m3  │
+///             ▼     │      │◄─────┤      │◄─────────┤      │◄────────┤      │
+///            ───    │      │      │      │          │      │         │      │
+///            ///    │  s0  │      │ s1   │          │ s2   │         │ s3   │
+///       auto,canon  │      │      │      │          │      │         │      │
+///      ┌──────────► │      │      └────┬─┘          └───┬──┘         └──────┘
+///      │            └──┬───┘       ▲   │m2          ▲   │m3            ▲
+/// ┌────┴──┐            │m1         │   │            │   │              │
+/// │ start │            ▼           │   ▼            │   ▼              │
+/// │       │           ┌──┐         │  ┌──┐          │ ┌──┐             │
+/// │       │           │b1├─────────┘  │b2├──────────┘ │b3├─────────────┘
+/// │       │           └──┘auto,canon  └──┘ auto,canon └──┘ auto,canon
+/// │       │
+/// └───────┘
+///
+/// </pre>
+/// Each box is a board arrangement; SearchSlotData instances are along the
+/// top, where m? is viaXXX.  For the pictured graph, path would contain
+/// [s3, s2, s1, s0].
+///
+class Solution<ST extends Slot> {
+  /// The path to the solution, in reverse order.
+  /// path[0] is the solved game.
+  final List<SearchSlotData> path;
+
+  int nextStep;
+
+  /// For nextStep, the map from the slot numbers in
+  /// path[nextStep].viaXXX to the real game board.  This moves around
+  /// due to slot canonicalization.
+  final List<int> slotMap;
+
+  /// A board we can modify as we go
+  final Board<ST, SearchSlotData> scratch;
+
+  Solution(List<SearchSlotData> path, Board<ST, SearchSlotData> scratch)
+      : path = path,
+        nextStep = path.length - 1,
+        scratch = scratch,
+        slotMap = List<int>.generate(scratch.numSlots, (i) => i);
+
+  bool get done => nextStep < 0;
+
+  void run(GameController<ST> controller) {
+    print("@@ Solution has ${path.length} steps");
+    assert(path.isEmpty || path[path.length-1].from == null);
+    controller.doAutomaticMoves(() => _moveCompleted(controller));
+  }
+
+  /// Now, both scrath and game are at one of the "s" states along the top.
+  void _moveCompleted(GameController<ST> controller) {
+    int nextEmptySlot = 0;
+    final board = controller.game.board;
+    assert(quiver.listsEqual(
+        (board.makeSearchBoard()..canonicalize()).slotData.raw,
+        scratch.slotData.raw));
+    assert(() {
+      slotMap.fillRange(0, slotMap.length, -1);
+      return true;
+    }());
+    for (int i = 0; i < slotMap.length; i++) {
+      final realSlot = board.slotFromNumber(i);
+      int canonicalized = -1;
+      if (realSlot.isEmpty) {
+        while (scratch.slotFromNumber(nextEmptySlot).isNotEmpty) {
+          nextEmptySlot++;
+        }
+        canonicalized = scratch.slotFromNumber(nextEmptySlot++).slotNumber;
+      } else {
+        final Card top = realSlot.top;
+        for (int j = 0; j < scratch.numSlots; j++) {
+          final s = scratch.slotFromNumber(j);
+          if (s.isNotEmpty && s.top == top) {
+            canonicalized = j;
+            break;
+          }
+        }
+      }
+      slotMap[canonicalized] = i;
+    }
+    assert(!slotMap.any((v) => v < 0));
+    _takeNextStep(controller);
+  }
+
+  /// The first time through, scratch is at the state state s0, then s1, etc.
+  void _takeNextStep(GameController<ST> controller) {
+    nextStep--;
+    if (nextStep < 0) {
+      assert(controller.game.board.gameWon);
+      return;
+    }
+    final step = path[nextStep];
+    scratch.slotData = step;
+    unawaited(() async {
+/*
+      controller.notifyListeners();
+      await Future<void>.delayed(Duration(seconds: 1));
+      controller.painter.currentSearch = scratch;
+      controller.notifyListeners();
+      await Future<void>.delayed(Duration(seconds: 1));
+      controller.painter.currentSearch = null;
+      controller.notifyListeners();
+      await Future<void>.delayed(Duration(seconds: 1));
+ */
+      final board = controller.game.board;
+      final srcSlot = board.slotFromNumber(slotMap[step.viaSlotFrom]);
+      final Card bottom = srcSlot.cardDownFromTop(step.viaNumCards - 1);
+      final src = CardStack(srcSlot, step.viaNumCards, bottom);
+      final dest = board.slotFromNumber(slotMap[step.viaSlotTo]);
+      final move = Move(src: src, dest: dest);
+      assert(controller._inFlight == null);
+      assert(board.canSelect(src));
+      assert(board.canDrop(
+          FoundCard(srcSlot, step.viaNumCards, bottom, ui.Rect.zero), dest));
+      controller._inFlight = _GameAnimation<ST>(
+          controller, [move], () => controller.doAutomaticMoves(() => _moveCompleted(controller)));
     }());
   }
 }
@@ -272,6 +417,7 @@ class Drag<ST extends Slot> implements MovingStack<ST> {
 class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
   final GameController<ST> controller;
   final List<Move<ST>> moves;
+  final void Function() onFinished;
   int move = 0;
   final Stopwatch time = Stopwatch();
   int lastTicks = 0;
@@ -279,9 +425,9 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
   ui.Offset movePos = ui.Offset.zero;
   ui.Offset moveDest = ui.Offset.zero;
 
-  static const double speed = 75; // card widths/second
+  static const double speed = 5; // @@ TODO 75; // card widths/second
 
-  _GameAnimation(this.controller, this.moves) {
+  _GameAnimation(this.controller, this.moves, this.onFinished) {
     timer = Timer.periodic(
         Duration(microseconds: (1000000 / 300).ceil()), _timerTick);
     // 300 Hz is faster than needed, but the amount of work done here is
@@ -343,7 +489,7 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
     assert(controller._inFlight == this);
     controller._inFlight = null;
     controller.notifyListeners();
-    controller.doAutomaticMoves();
+    onFinished();
   }
 
   @override
@@ -362,3 +508,11 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
   double get dy => movePos.dy;
 }
 // TODO:  Right-click or long-press to show card
+
+// Moderate games:
+//   f000000000uIUvLlTnGg0xK0JAFfrEabcHWojZRyNQX0pO0iSYC0Be0P0MhdzqsDt0wmVk
+//       14K iterations, 186K arrangements, 57 steps
+// Difficult games:
+//  f000000000MyPwFIxaZf0Wg0ANksJU0z0QdtTpjeqiB0OlYhoKHESnrXv0mu0cLRD0CbVG
+//  f0eAEzZv1vwPZfSp1LSFnvv-R_LWZhXX5OFgEO6f8a3EbsfCqKcjq8goai_3lE_jOpasv-l2HUV2D4jwrZ1dgl2DXZxdjk2ZTYxNkYQAAA_wcVUw==
+//    847K iterations, 15M arrangements

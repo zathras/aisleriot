@@ -30,8 +30,6 @@ abstract class _FreecellGenericSlot implements Slot {
   bool movableTo(_SlotStack moving, FreecellBoard board);
 
   bool canSelect(_SlotStack cards, FreecellBoard board);
-
-  _FreecellGenericSlot _clone();
 }
 
 typedef _SlotStack = CardStack<_FreecellGenericSlot>;
@@ -39,8 +37,7 @@ typedef _Move = Move<_FreecellGenericSlot>;
 typedef _FoundCard = FoundCard<_FreecellGenericSlot>;
 
 class _FreecellSlot extends NormalSlot implements _FreecellGenericSlot {
-  _FreecellSlot(int slotNumber, {_FreecellSlot? copyFrom})
-      : super(slotNumber, copyFrom: copyFrom);
+  _FreecellSlot(Board board, int slotNumber) : super(board, slotNumber);
 
   @override
   bool canSelect(_SlotStack cards, FreecellBoard board) => true;
@@ -49,14 +46,10 @@ class _FreecellSlot extends NormalSlot implements _FreecellGenericSlot {
   @override
   bool movableTo(_SlotStack moving, FreecellBoard board) =>
       isEmpty && moving.numCards == 1;
-
-  @override
-  _FreecellSlot _clone() => _FreecellSlot(slotNumber, copyFrom: this);
 }
 
 class _HomecellSlot extends NormalSlot implements _FreecellGenericSlot {
-  _HomecellSlot(int slotNumber, {_HomecellSlot? copyFrom})
-      : super(slotNumber, copyFrom: copyFrom);
+  _HomecellSlot(Board board, int slotNumber) : super(board, slotNumber);
 
   @override
   bool canSelect(_SlotStack cards, FreecellBoard board) => false;
@@ -75,13 +68,26 @@ class _HomecellSlot extends NormalSlot implements _FreecellGenericSlot {
     }
   }
 
-  @override
-  _HomecellSlot _clone() => _HomecellSlot(slotNumber, copyFrom: this);
+  ///
+  /// Is this card eligible for a move to a homecell, based on the minimum
+  /// card values tehre now?  This is a little tricky.  It's true if c
+  /// couldn't possibly be needed in the field to put another card on.
+  ///
+  static bool cardAutoEligible(Card c, List<int> homecellMin) {
+    final minThisColor = homecellMin[c.suit.color.index];
+    final minOtherColor = homecellMin[1-c.suit.color.index];
+    if (c.value <= minOtherColor + 1) {
+      return true;
+    } else if (c.value == minOtherColor + 2) {
+      return c.value <= minThisColor + 2;
+    } else {
+      return false;
+    }
+  }
 }
 
 class _FieldSlot extends ExtendedSlot implements _FreecellGenericSlot {
-  _FieldSlot(int slotNumber, {_FieldSlot? copyFrom})
-      : super(slotNumber, copyFrom: copyFrom);
+  _FieldSlot(Board board, int slotNumber) : super(board, slotNumber);
 
   @override
   bool canSelect(_SlotStack cards, FreecellBoard board) =>
@@ -105,22 +111,29 @@ class _FieldSlot extends ExtendedSlot implements _FreecellGenericSlot {
     }
     return isEmpty || FreecellBoard.fieldJoinQ(top, moving.bottom);
   }
-
-  @override
-  _FieldSlot _clone() => _FieldSlot(slotNumber, copyFrom: this);
 }
 
-class FreecellBoard extends Board<_FreecellGenericSlot> {
-  final List<_FreecellSlot> freecell;
-  final List<_HomecellSlot> homecell;
-  final List<_FieldSlot> field;
+class FreecellBoard<SD extends SlotData>
+    extends Board<_FreecellGenericSlot, SD> {
+  late final List<_FreecellSlot> freecell;
+  late final List<_HomecellSlot> homecell;
+  late final List<_FieldSlot> field;
 
-  FreecellBoard(List<_FreecellSlot> freecell, List<_HomecellSlot> homecell,
-      List<_FieldSlot> field)
-      : freecell = List.unmodifiable(freecell),
-        homecell = List.unmodifiable(homecell),
-        field = List.unmodifiable(field),
-        super([...freecell, ...homecell, ...field]);
+  FreecellBoard(SD slotData) : super(slotData) {
+    int slotNumber = 0;
+    final freecell = List.generate(4, (i) => _FreecellSlot(this, slotNumber++),
+        growable: false);
+    final homecell = List.generate(4, (i) => _HomecellSlot(this, slotNumber++),
+        growable: false);
+    final field = List.generate(8, (_) => _FieldSlot(this, slotNumber++),
+        growable: false);
+    addActiveSlotGroup(freecell);
+    this.freecell = List.unmodifiable(freecell);
+    addActiveSlotGroup(homecell);
+    this.homecell = List.unmodifiable(homecell);
+    addActiveSlotGroup(field);
+    this.field = List.unmodifiable(field);
+  }
 
   @override
   bool get gameWon =>
@@ -132,10 +145,6 @@ class FreecellBoard extends Board<_FreecellGenericSlot> {
   @override
   bool canDrop(_FoundCard card, _FreecellGenericSlot dest) =>
       dest.movableTo(card, this);
-
-  /// 0 (one less than ace) on empty
-  int minimumHomecellValue() =>
-      homecell.fold(99, (a, _HomecellSlot v) => min(a, v.numCards));
 
   /// field-join?
   static bool fieldJoinQ(Card lower, Card upper) =>
@@ -166,12 +175,31 @@ class FreecellBoard extends Board<_FreecellGenericSlot> {
   int emptyFreecellCount() =>
       freecell.fold(0, (acc, f) => acc + (f.isEmpty ? 1 : 0));
 
+  /// Indexed by CardColor.index
+  List<int> minimumHomecellValues() {
+    final result = List.filled(2, 99);
+    final count = List.filled(2, 0);
+    for (final s in homecell) {
+      if (s.isNotEmpty) {
+        final c = s.top;
+        result[c.suit.color.index] = min(result[c.suit.color.index], c.value);
+        count[c.suit.color.index]++;
+      }
+    }
+    for (int i = 0; i < 2; i++) {
+      if (count[i] < 2) {
+        result[i] = 0;
+      }
+    }
+    return result;
+  }
+
   @override
   List<_Move> automaticMoves() {
-    final eligibleValue = minimumHomecellValue() + 2;
+    final homecellMin = minimumHomecellValues();
     _Move? check(_FreecellGenericSlot slot) {
       if (slot.isNotEmpty) {
-        if (slot.top.value <= eligibleValue) {
+        if (_HomecellSlot.cardAutoEligible(slot.top, homecellMin)) {
           final stack = CardStack(slot, 1, slot.top);
           for (final dest in homecell) {
             if (dest.movableTo(stack, this)) {
@@ -198,69 +226,7 @@ class FreecellBoard extends Board<_FreecellGenericSlot> {
     return const [];
   }
 
-  @override
-  FreecellSearchBoard toSearchBoard() => FreecellSearchBoard(this);
-}
-
-class FreecellSearchBoard extends FreecellBoard
-    implements SearchBoard<_FreecellGenericSlot> {
-  @override
-  int get goodness => _goodness;
-  int _goodness;
-  final int depth;
-  @override
-  final FreecellSearchBoard? from;
-
-  /// We get from from to this board by applying move via, and then any
-  /// automatic moves.
-  @override
-  final _Move? via;
-
-  FreecellSearchBoard(FreecellBoard other)
-      : _goodness = _calculateGoodness(other.freecell, other.field, 0),
-        depth = 0,
-        from = null,
-        via = null,
-        super(
-            _copy(other.freecell), _copy(other.homecell), _copy(other.field)) {
-    doAllAutomaticMoves();
-  }
-
-  FreecellSearchBoard._withMove(FreecellSearchBoard from, _Move move)
-      : _goodness = -1,
-        depth = from.depth + 1,
-        from = from,
-        via = move,
-        super(_copy(from.freecell), _copy(from.homecell), _copy(from.field)) {
-    final mSrc = _SlotStack(slotFromNumber(move.src.slot.slotNumber),
-        move.src.numCards, move.src.bottom);
-    _Move(src: mSrc, dest: slotFromNumber(move.dest.slotNumber)).move();
-    doAllAutomaticMoves();
-    _goodness = _calculateGoodness(freecell, field, depth);
-  }
-
-  void doAllAutomaticMoves() {
-    for (;;) {
-      final moves = automaticMoves();
-      if (moves.isEmpty) {
-        break;
-      }
-      for (final m in moves) {
-        m.move();
-      }
-    }
-  }
-
-  static List<T> _copy<T extends _FreecellGenericSlot>(List<T> src) {
-    final r = List<T>.from(src);
-    for (int i = 0; i < r.length; i++) {
-      r[i] = r[i]._clone() as T;
-    }
-    return r;
-  }
-
-  static int _calculateGoodness(final List<_FreecellSlot> freecell,
-      final List<_FieldSlot> field, final int depth) {
+  int _calculateGoodness() {
     int weight = 0;
     int emptyFreecells = 0;
     for (final s in freecell) {
@@ -283,26 +249,51 @@ class FreecellSearchBoard extends FreecellBoard
         }
         upper = card;
       }
-      ;
     }
+    int homeMin = 99;
+    int redMax= 0;
+    int blackMax = 0;
+    for (final s in homecell) {
+      homeMin = min(homeMin, s.numCards);
+      if (s.isNotEmpty) {
+        if (s.top.suit.color == CardColor.black) {
+          blackMax = max(blackMax, s.top.value);
+        } else {
+          redMax = max(redMax, s.top.value);
+        }
+      }
+    }
+    final minMax = min(blackMax, redMax);
+    final int bonus = 20 * minMax + 100 * homeMin;
     int mobility = (emptyFreecells + 1) * _pow2(emptyFields);
     mobility = min(mobility, 6);
     mobility *= 10000;
     weight = max(99 - weight, 0);
-    return mobility + weight + max(99 - depth, 0);
+    return bonus + mobility + weight * 100 + max(99 - slotData.depth, 0);
   }
 
   @override
-  FreecellSearchBoard toSearchBoard() => this;
+  FreecellBoard<SearchSlotData> makeSearchBoard() => FreecellBoard(slotData.copy(0));
 
   @override
-  void calculateChildren(void Function(FreecellSearchBoard child) f) {
+  void calculateChildren(FreecellBoard<SearchSlotData> scratch, void Function(SearchSlotData child) f) {
+    final SearchSlotData initial = scratch.slotData;
+
     void moveTo(_SlotStack src, List<_FreecellGenericSlot> slots,
         {bool justOne = false}) {
       for (final dest in slots) {
         if (dest != src.slot && dest.movableTo(src, this)) {
-          final m = _Move(src: src, dest: dest, animate: true);
-          f(FreecellSearchBoard._withMove(this, m));
+          final child = initial.copy(initial.depth + 1);
+          scratch.slotData = child;
+          child.viaSlotFrom = src.slot.slotNumber;
+          child.viaSlotTo = dest.slotNumber;
+          child.viaNumCards = src.numCards;
+          _Move(src: src, dest: dest).move();
+          scratch.doAllAutomaticMoves();
+          scratch.canonicalize();
+          child.goodness = scratch._calculateGoodness();
+          f(child);
+          scratch.slotData = initial;
           if (justOne) {
             break;
           }
@@ -310,80 +301,78 @@ class FreecellSearchBoard extends FreecellBoard
       }
     }
 
-    for (final s in freecell) {
+    for (final s in scratch.freecell) {
       if (s.isNotEmpty) {
         final src = _SlotStack(s, 1, s.top);
-        moveTo(src, homecell, justOne: true);
-        moveTo(src, field);
+        moveTo(src, scratch.homecell, justOne: true);
+        moveTo(src, scratch.field);
       }
     }
-    for (final s in field) {
+    for (final s in scratch.field) {
       int numCards = 1;
       for (final bottom in s.fromTop) {
         final src = _SlotStack(s, numCards, bottom);
         if (!s.canSelect(src, this)) {
           break;
         }
-        moveTo(src, homecell, justOne: true);
-        moveTo(src, freecell, justOne: true);
-        moveTo(src, field);
+        moveTo(src, scratch.homecell, justOne: true);
+        moveTo(src, scratch.freecell, justOne: true);
+        moveTo(src, scratch.field);
         numCards++;
       }
     }
+    assert(identical(scratch.slotData, initial));
   }
+
+  @override
+  // TODO: implement externalID
+  String get externalID => 'f0';    // freecell version 0
 }
 
 class Freecell extends Game<_FreecellGenericSlot> {
   @override
-  final FreecellBoard board;
+  final FreecellBoard<ListSlotData> board;
 
   Freecell._p(this.board, List<SlotOrLayout> slots) : super(slots);
 
   factory Freecell() {
     Deck d = Deck();
-    int slotNumber = 0;
-    final freecell =
-        List.generate(4, (i) => _FreecellSlot(slotNumber++), growable: false);
-    final homecell =
-        List.generate(4, (i) => _HomecellSlot(slotNumber++), growable: false);
-    final field =
-        List.generate(8, (_) => _FieldSlot(slotNumber++), growable: false);
+    final board = FreecellBoard(ListSlotData(16));
     int f = 0;
     while (!d.isEmpty) {
-      field[f].addCard(d.dealCard());
+      board.field[f].addCard(d.dealCard());
       f++;
-      f %= field.length;
+      f %= board.field.length;
     }
     final allSlots = List<SlotOrLayout>.empty(growable: true);
     allSlots.add(CarriageReturnSlot(extraHeight: 0.3));
     allSlots.add(HorizontalSpaceSlot(0.4));
-    for (final s in freecell) {
+    for (final s in board.freecell) {
       allSlots.add(s);
       allSlots.add(HorizontalSpaceSlot(1 / 24));
     }
     allSlots.add(HorizontalSpaceSlot(0.2));
-    for (final s in homecell) {
+    for (final s in board.homecell) {
       allSlots.add(s);
       allSlots.add(HorizontalSpaceSlot(1 / 24));
     }
     allSlots.add(HorizontalSpaceSlot(0.4 - 1 / 24));
     allSlots.add(CarriageReturnSlot(extraHeight: 0.3));
     allSlots.add(HorizontalSpaceSlot(0.5));
-    for (final s in field) {
+    for (final s in board.field) {
       allSlots.add(s);
       allSlots.add(HorizontalSpaceSlot(1 / 24));
     }
     allSlots.add(CarriageReturnSlot(extraHeight: 0.2));
-    final board = FreecellBoard(freecell, homecell, field);
     return Freecell._p(board, allSlots);
   }
 
   @override
   List<_Move> doubleClick(_SlotStack s) {
     if (board.canSelect(s)) {
-      final eligibleValue = board.minimumHomecellValue() + 2;
+      final homecellMin = board.minimumHomecellValues();
       final Card card = s.slot.top;
-      if (card.value <= eligibleValue) {
+      if (_HomecellSlot.cardAutoEligible(card , homecellMin)) {
         for (final dest in board.homecell) {
           if (dest.movableTo(s, board)) {
             return [_Move(src: s, dest: dest)];

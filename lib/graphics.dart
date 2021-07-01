@@ -156,7 +156,7 @@ class GamePainter {
   /// Paint times, in seconds
   final paintTimes = CircularBuffer(Float64List(100));
 
-  SearchBoard? currentSearch;
+  Board? currentSearch;
 
   GamePainter._p(_GamePainterCards cards, {required bool cacheCards})
       : _cards = cards,
@@ -467,13 +467,13 @@ class CardFinder<ST extends Slot> {
     layout.visitSlots(controller, (NormalSlot s, space) {
       if (s == slot) {
         result = ui.Offset(space.left, space.top);
-        ;
       }
-    }, (ExtendedSlot s, double cardHeight, ui.Rect maxSpace) {
+    }, (ExtendedSlot s, double cardHeight, ui.Rect slotArea) {
       if (s == slot) {
-        var x = maxSpace.left;
-        var y = maxSpace.top + (numCards + 1) * cardHeight;
-        y = min(y, maxSpace.bottom - cardHeight);
+        final delta = layout.extendedDelta(slotArea, cardHeight, numCards + 1);
+        var x = slotArea.left;
+        var y = slotArea.top + numCards * delta;
+        y = min(y, slotArea.bottom - cardHeight);
         result = ui.Offset(x, y);
       }
     });
@@ -536,7 +536,7 @@ class _BoardLayout {
     }
   }
 
-  void visitCards(GameController controller, _SpaceF spaceF, [SearchBoard? search]) {
+  void visitCards(GameController controller, _SpaceF spaceF, [Board? search]) {
     visitSlots(controller, (NormalSlot slot, ui.Rect space) {
       if (search != null) {
         slot = search.slotFromNumber(slot.slotNumber) as NormalSlot;
@@ -555,12 +555,8 @@ class _BoardLayout {
             slotArea.left, slotArea.top, slotArea.width, cardHeight);
         spaceF(slot, null, space, true, null);
       } else {
-        final extraHeight = slotArea.height - cardHeight;
         double offset = 0;
-        final numCards = slot.numCards;
-        double delta = (numCards < 2) ? 0 : extraHeight / (numCards - 1);
-        delta = min(delta, cardHeight / 5);
-        delta = max(delta, cardHeight / 24);
+        double delta = extendedDelta(slotArea, cardHeight, slot.numCards);
         Card? lastCard;
         int i = 0;
         for (final card in slot.fromBottom) {
@@ -573,5 +569,13 @@ class _BoardLayout {
         };
       }
     });
+  }
+
+  double extendedDelta(ui.Rect slotArea, double cardHeight, int numCards) {
+    final extraHeight = slotArea.height - cardHeight;
+    double delta = (numCards < 0) ? 0 : extraHeight / (numCards - 1);
+    delta = min(delta, cardHeight / 5);
+    delta = max(delta, cardHeight / 24);
+    return delta;
   }
 }

@@ -235,6 +235,7 @@ class _MainWindowState extends State<MainWindow> {
         onSelected: (void Function() action) => action(),
         itemBuilder: (BuildContext context) {
           return <PopupMenuEntry<void Function()>>[
+            PopupMenuItem(value: () {}, child: _saveMenu(context)),
             PopupMenuItem(
                 enabled: true,
                 value: () {},
@@ -256,6 +257,49 @@ class _MainWindowState extends State<MainWindow> {
                     _HelpMenu('Help', widget.assets.icon, painter?.paintTimes))
           ];
         },
+      );
+
+  PopupMenuButton _saveMenu(BuildContext context) =>
+      PopupMenuButton<void Function()>(
+        offset: const Offset(-100, 0),
+        onSelected: (void Function() action) => action(),
+        onCanceled: () => Navigator.pop(context),
+        itemBuilder: (BuildContext context) => [
+          PopupMenuItem(
+              value: () {
+                final ext = controller.game.board.toExternal();
+                Clipboard.setData(ClipboardData(text: ext));
+                Navigator.pop(context);
+              },
+              child: Text('Copy game to clipboard')),
+          PopupMenuItem(
+              value: () {
+                unawaited(() async {
+                  final String? cd;
+                  try {
+                    cd = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+                    if (cd == null || cd == '') {
+                      return showErrorDialog(context, 'Empty clipboard', null);
+                    }
+                    controller.game.board.setFromExternal(cd);
+                    controller.notifyListeners();
+                  } catch (e, s) {
+                    print(e);
+                    print(s);
+                    return showErrorDialog(context, 'Clipboard error', e);
+                  }
+                }());
+                Navigator.pop(context);
+              },
+              child: Text('Paste game from clipboard')),
+        ],
+        child: Row(
+          children: [
+            Text('Save / Restore'),
+            const Spacer(),
+            const Icon(Icons.arrow_right, size: 30.0),
+          ],
+        ),
       );
 
   PopupMenuButton _settingsMenu(BuildContext context) =>
@@ -721,5 +765,53 @@ class _GameCustomPainter extends CustomPainter {
     return state.needsPaint ||
         state != oldDelegate.state ||
         painter != oldDelegate.painter;
+  }
+}
+
+
+Future<void> showErrorDialog(
+    BuildContext context, String message, Object? exception) =>
+    showDialog(
+        context: context,
+        builder: (BuildContext context) => ErrorDialog(message, exception));
+
+class ErrorDialog extends StatelessWidget {
+  final String message;
+  final Object? exception;
+
+  ErrorDialog(this.message, this.exception);
+
+  @override
+  Widget build(BuildContext context) {
+    String exs = '';
+    if (exception != null) {
+      exs = 'Error';
+      try {
+        exs = exception.toString();
+      } catch (ex) {
+        print('Error in exception.toString()');
+      }
+    }
+    // return object of type Dialog
+    return AlertDialog(
+      title: Text(message),
+      content: (exception == null)
+          ? Text('')
+          : SingleChildScrollView(
+        child: Column(children: [
+          SizedBox(height: 20),
+          Text(exs),
+        ]),
+      ),
+      actions: <Widget>[
+        // usually buttons at the bottom of the dialog
+        TextButton(
+          onPressed: () {
+            Navigator.of(context).pop();
+          },
+          child: Text('OK'),
+        )
+      ],
+    );
   }
 }

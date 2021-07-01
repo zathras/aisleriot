@@ -14,10 +14,11 @@ dependencies:
   pedantic: ^1.0.8
   collection: ^1.15.0
   quiver: ^3.0.1
-  # tuple: ^2.0.0
   shared_preferences: ^2.0.5
   jovial_svg: ^1.0.5
   url_launcher: ^6.0.3
+  # archive: ^3.1.2
+  # tuple: ^2.0.0
 
 dev_dependencies:
   flutter_test:

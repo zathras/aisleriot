@@ -21,42 +21,33 @@
 
 import 'dart:collection';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:aisleriot/graphics.dart';
-import 'package:quiver/core.dart' as quiver;
-import 'package:quiver/collection.dart' as quiver;
+import 'package:flutter/foundation.dart';
 
 import '../controller.dart';
 
-abstract class Board<ST extends Slot> {
+abstract class Board<ST extends Slot, SD extends SlotData> {
+  SD slotData;
   final List<ST> _activeSlots;
+  final _slotGroupCounts = List<int>.empty(growable: true);
 
-  Board(List<ST> activeSlots) : _activeSlots = List.unmodifiable(activeSlots) {
-    for (int i = 0; i < _activeSlots.length; i++) {
-      assert(i == _activeSlots[i].slotNumber);
+  Board(this.slotData) : _activeSlots = List<ST>.empty(growable: true);
+
+  void addActiveSlotGroup(Iterable<ST> slots) {
+    _slotGroupCounts.add(slots.length);
+    for (final slot in slots) {
+      assert(slot.slotNumber == _activeSlots.length);
+      _activeSlots.add(slot);
     }
   }
-
-  bool get gameWon;
 
   ST slotFromNumber(int slotNumber) => _activeSlots[slotNumber];
 
-  @override
-  int get hashCode => quiver.hashObjects(Iterable<int>.generate(
-      _activeSlots.length, (i) => _activeSlots[i].contentHash));
+  int get numSlots => _activeSlots.length;
 
-  @override
-  bool operator ==(Object other) {
-    if (!(other is SearchBoard<ST>)) {
-      return false;
-    }
-    for (int i = 0; i < _activeSlots.length; i++) {
-      if (!_activeSlots[i].contentEquals(other._activeSlots[i])) {
-        return false;
-      }
-    }
-    return true;
-  }
+  bool get gameWon;
 
   /// button-pressed
   bool canSelect(CardStack<ST> s);
@@ -65,22 +56,46 @@ abstract class Board<ST extends Slot> {
 
   List<Move<ST>> automaticMoves();
 
-  SearchBoard<ST> toSearchBoard();
-}
+  void doAllAutomaticMoves() {
+    for (;;) {
+      final moves = automaticMoves();
+      if (moves.isEmpty) {
+        break;
+      }
+      for (final m in moves) {
+        m.move();
+      }
+    }
+  }
 
-abstract class SearchBoard<ST extends Slot> extends Board<ST> {
-  SearchBoard(List<ST> activeSlots) : super(activeSlots);
+  Board<ST, SearchSlotData> makeSearchBoard();
 
-  /// Get a 32 bit signed integer saying how good this solution is.
-  /// Bigger values are better.
-  int get goodness;
-  SearchBoard<ST>? get from;
-  Move<ST>? get via;
+  void calculateChildren(covariant Board<ST, SearchSlotData> scratch,
+      void Function(SearchSlotData child) f);
 
-  @override
-  SearchBoard<ST> toSearchBoard() => this;
+  void canonicalize() {
+    int start = 0;
+    for (final c in _slotGroupCounts) {
+      final end = start + c;
+      slotData._sortSlots(start, end);
+      start = end;
+    }
+  }
 
-  void calculateChildren(covariant void Function(SearchBoard<ST> child) f);
+  String toExternal() {
+    final sd = slotData;
+    final SearchSlotData ssd = (sd is SearchSlotData) ? sd : slotData.copy(0);
+    return ssd.toExternal(externalID);
+  }
+
+  String get externalID;
+
+  void setFromExternal(String cd) {
+    if (!cd.startsWith(externalID)) {
+      throw ArgumentError('$externalID is not the start of buffer "$cd".');
+    }
+    slotData.setFromExternal(cd.substring(externalID.length));
+  }
 }
 
 abstract class Game<ST extends Slot> {
@@ -95,7 +110,7 @@ abstract class Game<ST extends Slot> {
 
   GameController<ST> makeController() => GameController<ST>(this);
 
-  Board<ST> get board;
+  Board<ST, ListSlotData> get board;
 
   List<Move<ST>> doubleClick(CardStack<ST> s);
 }
@@ -108,50 +123,402 @@ abstract class SlotOrLayout {
       void Function(HorizontalSpaceSlot)? horizontalSpace});
 }
 
-/// A slot that is visible and holds cards
-abstract class Slot extends SlotOrLayout {
-  final List<Card> _cards;
+abstract class SlotData {
+  final int numSlots;
 
-  final int slotNumber;
+  SlotData(this.numSlots);
 
-  Slot(this.slotNumber, {Slot? copyFrom})
-      : _cards = copyFrom == null
-            ? List<Card>.empty(growable: true)
-            : List<Card>.from(copyFrom._cards, growable: true);
+  CardList operator [](int i);
 
-  bool get isEmpty => _cards.isEmpty;
-  bool get isNotEmpty => _cards.isNotEmpty;
+  int get depth;
 
-  Card get top => _cards[_cards.length - 1];
+  SearchSlotData copy(int depth);
 
-  Card? get belowTop => _cards.length > 1 ? _cards[_cards.length - 1] : null;
+  void _sortSlots(int start, int end);
 
-  int get numCards => _cards.length;
+  void setFromExternal(String ext);
+}
 
-  void moveStackTo(CardStack stack, Slot dest) {
-    dest._cards
-        .addAll(_cards.getRange(_cards.length - stack.numCards, _cards.length));
-    _cards.length -= stack.numCards;
+class ListSlotData extends SlotData {
+  final List<BigCardList> _lists;
+
+  ListSlotData(int numSlots)
+      : _lists = List.generate(numSlots, (_) => BigCardList()),
+        super(numSlots);
+
+  @override
+  CardList operator [](int i) => _lists[i];
+
+  @override
+  int get depth => 0;
+
+  @override
+  SearchSlotData copy(int depth) {
+    final r = SearchSlotData(numSlots: _lists.length, depth: depth, from: null);
+    for (int i = 0; i < _lists.length; i++) {
+      CardList dest = r[i];
+      for (final c in _lists[i].fromBottom) {
+        dest.add(c);
+      }
+    }
+    assert(r._listsOK());
+    return r;
   }
 
-  void addCard(Card dealt) => _cards.add(dealt);
+  @override
+  void _sortSlots(int start, int end) => throw "unreachable";
 
+  @override
+  void setFromExternal(String ext) {
+    final ssd = copy(0);
+    ssd.setFromExternal(ext);
+    for (int i = 0; i < _lists.length; i++) {
+      final dest = _lists[i];
+      dest._reset();
+      final CardList src = ssd[i];
+      for (final c in src.fromBottom) {
+        dest.add(c);
+      }
+    }
+  }
+}
+
+abstract class CardList {
+  bool get isEmpty;
+  bool get isNotEmpty;
+  Card get top;
+  Card? get belowTop;
+  int get numCards;
+  void moveStackTo(int numCards, covariant CardList dest);
+  void add(Card c);
+
+  Iterable<Card> get fromTop;
+
+  Iterable<Card> get fromBottom;
+}
+
+class BigCardList extends CardList {
+  final _cards = List<Card>.empty(growable: true);
+
+  @override
+  bool get isEmpty => _cards.isEmpty;
+  @override
+  bool get isNotEmpty => _cards.isNotEmpty;
+  @override
+  Card get top => _cards[_cards.length - 1];
+  @override
+  Card? get belowTop => _cards.length > 1 ? _cards[_cards.length - 1] : null;
+  @override
+  int get numCards => _cards.length;
+
+  @override
+  void moveStackTo(int numCards, BigCardList dest) {
+    dest._cards
+        .addAll(_cards.getRange(_cards.length - numCards, _cards.length));
+    _cards.length -= numCards;
+  }
+
+  @override
+  void add(Card c) => _cards.add(c);
+
+  @override
   Iterable<Card> get fromTop =>
       Iterable.generate(_cards.length, (i) => _cards[_cards.length - 1 - i]);
 
+  @override
   Iterable<Card> get fromBottom =>
       Iterable.generate(_cards.length, (i) => _cards[i]);
 
-  int get contentHash => quiver.hashObjects(_cards);
+  void _reset() => _cards.length = 0;
+}
 
-  bool contentEquals(Slot other) => quiver.listsEqual(_cards, other._cards);
+class SearchSlotData extends SlotData {
+  int goodness = -1;
+  final Uint8List _raw;
+
+  @override
+  final int depth;
+
+  final SearchSlotData? from;
+  int viaSlotFrom = 0;
+  int viaSlotTo = 0;
+  int viaNumCards = 0;
+
+  SearchSlotData(
+      {required int numSlots, required this.depth, required this.from})
+      : _raw = _makeRaw(numSlots),
+        super(numSlots) {
+    assert(() {
+      for (int i = 0; i < _numCards; i++) {
+        _raw[i] = _uninitialized;
+      }
+      return true;
+    }());
+    for (int i = 0; i < numSlots; i++) {
+      final SearchCardList s = this[i];
+      s._numCards = 0;
+      s._top = _endList;
+    }
+  }
+
+  SearchSlotData._copy(int depth, SearchSlotData other)
+      : _raw = Uint8List.fromList(other._raw),
+        from = other,
+        depth = depth,
+        super(other.numSlots);
+
+  static const _numCards = 52;
+  static const _endList = 0xff;
+  static const _uninitialized = 0xfe;
+
+  static Uint8List _makeRaw(int numSlots) {
+    int bytes = _numCards + numSlots * 2;
+    if (kIsWeb) {
+      bytes = ((bytes + 3) ~/ 4) * 4;
+    } else {
+      bytes = ((bytes + 7) ~/ 8) * 8;
+    }
+    return Uint8List(bytes);
+  }
+
+  int _slotAddress(int i) => _numCards + 2 * i;
+
+  @override
+  SearchCardList operator [](int i) => SearchCardList(_raw, _slotAddress(i));
+
+  @override
+  SearchSlotData copy(int depth) => SearchSlotData._copy(depth, this);
+
+  List<int> get raw {
+    if (kIsWeb) {
+      return Uint32List.sublistView(_raw);
+    } else {
+      return Uint64List.sublistView(_raw);
+    }
+  }
+
+  bool _listsOK() {
+    for (int i = 0; i < numSlots; i++) {
+      assert(this[i]._listOK());
+    }
+    return true;
+  }
+
+  @override
+  void _sortSlots(int start, int end) =>
+      Uint16List.sublistView(_raw, _slotAddress(start), _slotAddress(end))
+          .sort();
+
+  String toExternal(String typeID) {
+    final sb = StringBuffer();
+
+    void writeCard(int card) {
+      if (card == _endList) {
+        sb.write('0');
+      } else {
+        assert(card < _numCards);
+        sb.write('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'.substring(card, card+1));
+      }
+    }
+    sb.write(typeID);
+    for (int i = 0; i < numSlots; i++) {
+      writeCard(_raw[_slotAddress(i)+1]);
+    }
+    for (int i = 0; i < _numCards; i++) {
+      writeCard(_raw[i]);
+    }
+    return sb.toString();
+  }
+
+  static final int _cu0 = '0'.codeUnitAt(0);
+  static final int _cuA = 'A'.codeUnitAt(0);
+  static final int _cuZ = 'Z'.codeUnitAt(0);
+  static final int _cua = 'a'.codeUnitAt(0);
+  static final int _cuz = 'z'.codeUnitAt(0);
+
+  @override
+  void setFromExternal(String ext) {
+    int charToCard(int cu) {
+      if (cu == _cu0) {
+        return _endList;
+      } else if (cu >= _cua && cu <= _cuz) {
+        return cu - _cua;
+      } else if (cu >= _cuA && cu <= _cuZ) {
+        return cu - _cuA + 26;
+      } else {
+        throw ArgumentError();
+      }
+    }
+    for (int i = 0; i < _numCards; i++) {
+      _raw[i] = charToCard(ext.codeUnitAt(i + numSlots));
+    }
+    for (int i = 0; i < numSlots; i++) {
+      final addr = _slotAddress(i);
+      var curr = _raw[addr + 1] = charToCard(ext.codeUnitAt(i));
+      _raw[addr] = 0;
+      while (curr != _endList) {
+        _raw[addr]++;
+        curr = _raw[curr];
+      }
+    }
+  }
+}
+
+class SearchCardList implements CardList {
+  final Uint8List _raw;
+  final int _offset;
+
+  SearchCardList(this._raw, this._offset);
+
+  @override
+  int get numCards => _raw[_offset];
+
+  set _numCards(int v) => _raw[_offset] = v;
+
+  int get _top => _raw[_offset + 1];
+
+  set _top(int v) => _raw[_offset + 1] = v;
+
+  @override
+  bool get isEmpty => numCards == 0;
+
+  @override
+  bool get isNotEmpty => !isEmpty;
+
+  @override
+  Card get top => Deck.cards[_top];
+
+  @override
+  Card? get belowTop => (numCards > 1) ? Deck.cards[_raw[_top]] : null;
+
+  @override
+  void add(Card c) {
+    assert(_raw[c.index] == SearchSlotData._uninitialized);
+    _raw[c.index] = _top;
+    _top = c.index;
+    _raw[_offset]++;
+  }
+
+  @override
+  Iterable<Card> get fromTop => _SearchCardListIterable(this);
+
+  @override
+  Iterable<Card> get fromBottom => List<Card>.from(fromTop).reversed;
+
+  // It's OK that this is a little slow - it's only used for painting,
+  // and we don't paint card dragging animations of this kind of deck.
+
+  @override
+  void moveStackTo(int numCards, covariant SearchCardList dest) {
+    assert(dest != this);
+    assert(numCards > 0);
+    assert(numCards <= this.numCards, '$numCards > ${this.numCards}');
+    int addr = _offset + 1; // Address of _top;
+    int top = _raw[addr];
+    for (int i = 0; i < numCards; i++) {
+      addr = _raw[addr];
+      assert(addr < SearchSlotData._numCards);
+    }
+    _raw[_offset] -= numCards;
+    _raw[_offset + 1] = _raw[addr];
+    _raw[dest._offset] += numCards;
+    _raw[addr] = _raw[dest._offset + 1];
+    _raw[dest._offset + 1] = top;
+    assert(_listOK());
+    assert(dest._listOK());
+  }
+
+  bool _listOK() {
+    assert(numCards == fromTop.length, '$numCards, ${fromTop.length}');
+    return true;
+  }
+}
+
+class _SearchCardListIterable extends IterableBase<Card> {
+  final SearchCardList _list;
+  _SearchCardListIterable(this._list);
+
+  @override
+  Iterator<Card> get iterator => _SearchCardListIterator(_list);
+}
+
+class _SearchCardListIterator extends Iterator<Card> {
+  final SearchCardList _list;
+  int _current;
+
+  _SearchCardListIterator(SearchCardList list)
+      : _list = list,
+        _current = list._offset + 1; // address of _top
+
+  @override
+  bool moveNext() {
+    if (_current == SearchSlotData._endList) {
+      return false;
+    }
+    _current = _list._raw[_current];
+    assert(_current < SearchSlotData._numCards ||
+        _current == SearchSlotData._endList);
+    return _current != SearchSlotData._endList;
+  }
+
+  @override
+  Card get current => Deck.cards[_current];
+}
+
+/// A slot that is visible and holds cards
+abstract class Slot extends SlotOrLayout {
+  final Board board;
+  final int slotNumber;
+
+  Slot(this.board, this.slotNumber);
+
+  CardList get _cards => board.slotData[slotNumber];
+
+  bool get isEmpty => _cards.isEmpty;
+  bool get isNotEmpty => _cards.isNotEmpty;
+  Card get top => _cards.top;
+  Card? get belowTop => _cards.belowTop;
+  int get numCards => _cards.numCards;
+
+  void moveStackTo(int numCards, Slot dest) =>
+      _cards.moveStackTo(numCards, dest._cards);
+
+  void addCard(Card dealt) => _cards.add(dealt);
+
+  Iterable<Card> get fromTop => _cards.fromTop;
+
+  Iterable<Card> get fromBottom => _cards.fromBottom;
+
+  Card cardDownFromTop(int num) {
+    if (num < 0 || num >= numCards) {
+      throw ArgumentError.value(num, 'not between 0 and ${numCards - 1}');
+    }
+    for (final c in fromTop) {
+      if (num == 0) {
+        return c;
+      }
+      num--;
+    }
+    throw StateError('unreachable');
+  }
+
+  @override
+  String toString() {
+    final sb = StringBuffer();
+    sb.write(runtimeType);
+    sb.write(' - ');
+    for (final c in fromTop) {
+      sb.write(c);
+      sb.write(' ');
+    }
+    return sb.toString();
+  }
 }
 
 /// A slot in which the topmost card is visible.  To be extended or implemented
 /// by a game.
 abstract class NormalSlot extends Slot {
-  NormalSlot(int slotNumber, {NormalSlot? copyFrom})
-      : super(slotNumber, copyFrom: copyFrom);
+  NormalSlot(Board board, int slotNumber) : super(board, slotNumber);
 
   @override
   void visit(
@@ -165,9 +532,7 @@ abstract class NormalSlot extends Slot {
 /// A slot in which all the cards are visible, arranged as an
 /// overlapped pile, proceeding down.  To be extended by a game.
 abstract class ExtendedSlot extends Slot {
-  ExtendedSlot(int slotNumber,
-      {ExtendedSlot? copyFrom, double horizPosOffset = 0})
-      : super(slotNumber, copyFrom: copyFrom);
+  ExtendedSlot(Board board, int slotNumber) : super(board, slotNumber);
 
   @override
   void visit(
@@ -210,7 +575,7 @@ class HorizontalSpaceSlot extends SlotOrLayout {
 
 class Deck {
   static final _random = Random();
-  final cards = List<Card>.generate(52, _generator, growable: false);
+  static final cards = List<Card>.generate(52, _generator, growable: false);
   List<Card>? _undealt;
   List<Card> get undealt => _undealt ?? (_undealt = List.from(cards));
 
@@ -286,7 +651,7 @@ class SlotStack<ST extends Slot> {
 
   SlotStack(this.slot, this.numCards);
 
-  int get cardNumber => slot._cards.length - numCards;
+  int get cardNumber => slot.numCards - numCards;
 }
 
 ///
@@ -305,5 +670,5 @@ class Move<ST extends Slot> {
 
   int get numCards => src.numCards;
 
-  void move() => src.slot.moveStackTo(src, dest);
+  void move() => src.slot.moveStackTo(src.numCards, dest);
 }
