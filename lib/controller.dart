@@ -28,8 +28,10 @@ import 'package:pedantic/pedantic.dart';
 import 'package:quiver/collection.dart' as quiver;
 import 'package:quiver/core.dart' as quiver;
 
+import 'constants.dart';
 import 'graphics.dart';
 import 'm/game.dart';
+import 'main.dart';
 
 ///
 /// Controller and view manager for Solitaire.  The GameController manages
@@ -233,8 +235,6 @@ class GameController<ST extends Slot> extends ui.ChangeNotifier {
           print(
               "@@@@ ==> Found after $iterations iterations, duration ${sw.elapsed}.");
           sw.stop();
-          notifyListeners();
-          await Future<void>.delayed(Duration(seconds: 1));
           scratch.slotData = initial;
           SearchSlotData? next = k;
           final path = List.generate(k.depth + 1, (_) {
@@ -317,10 +317,10 @@ class Solution<ST extends Slot> {
   void _moveCompleted(GameController<ST> controller) {
     int nextEmptySlot = 0;
     final board = controller.game.board;
-    assert(quiver.listsEqual(
+    assert(NO_ASSERT || quiver.listsEqual(
         (board.makeSearchBoard()..canonicalize()).slotData.raw,
         scratch.slotData.raw));
-    assert(() {
+    assert(NO_ASSERT || () {
       slotMap.fillRange(0, slotMap.length, -1);
       return true;
     }());
@@ -344,7 +344,7 @@ class Solution<ST extends Slot> {
       }
       slotMap[canonicalized] = i;
     }
-    assert(!slotMap.any((v) => v < 0));
+    assert(NO_ASSERT || !slotMap.any((v) => v < 0));
     _takeNextStep(controller);
   }
 
@@ -374,9 +374,9 @@ class Solution<ST extends Slot> {
       final src = CardStack(srcSlot, step.viaNumCards, bottom);
       final dest = board.slotFromNumber(slotMap[step.viaSlotTo]);
       final move = Move(src: src, dest: dest);
-      assert(controller._inFlight == null);
-      assert(board.canSelect(src));
-      assert(board.canDrop(
+      assert(NO_ASSERT || controller._inFlight == null);
+      assert(NO_ASSERT || board.canSelect(src));
+      assert(NO_ASSERT || board.canDrop(
           FoundCard(srcSlot, step.viaNumCards, bottom, ui.Rect.zero), dest));
       controller._inFlight = _GameAnimation<ST>(
           controller, [move], () => controller.doAutomaticMoves(() => _moveCompleted(controller)));
@@ -425,7 +425,7 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
   ui.Offset movePos = ui.Offset.zero;
   ui.Offset moveDest = ui.Offset.zero;
 
-  static const double speed = 5; // @@ TODO 75; // card widths/second
+  static const double speed = 75; // card widths/second
 
   _GameAnimation(this.controller, this.moves, this.onFinished) {
     timer = Timer.periodic(
@@ -486,7 +486,7 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
     }
     time.stop();
     timer.cancel();
-    assert(controller._inFlight == this);
+    assert(NO_ASSERT || controller._inFlight == this);
     controller._inFlight = null;
     controller.notifyListeners();
     onFinished();
@@ -510,9 +510,12 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
 // TODO:  Right-click or long-press to show card
 
 // Moderate games:
-//   f000000000uIUvLlTnGg0xK0JAFfrEabcHWojZRyNQX0pO0iSYC0Be0P0MhdzqsDt0wmVk
-//       14K iterations, 186K arrangements, 57 steps
-// Difficult games:
+//  f000000000uIUvLlTnGg0xK0JAFfrEabcHWojZRyNQX0pO0iSYC0Be0P0MhdzqsDt0wmVk
+//       10K iterations, 145K arrangements, 59 steps
 //  f000000000MyPwFIxaZf0Wg0ANksJU0z0QdtTpjeqiB0OlYhoKHESnrXv0mu0cLRD0CbVG
-//  f0eAEzZv1vwPZfSp1LSFnvv-R_LWZhXX5OFgEO6f8a3EbsfCqKcjq8goai_3lE_jOpasv-l2HUV2D4jwrZ1dgl2DXZxdjk2ZTYxNkYQAAA_wcVUw==
-//    847K iterations, 15M arrangements
+//    21K iterations, 351K arrangements, 56 steps
+//    was difficult before slotWeight
+//  f000000000zlywOBdHre0aAEtIMQihXYjgJU00pDmVnk0SoL0fuGT000xPCscbWvqKNRZF
+//    9K iterations, 74K arrangements, 65 steps
+//  f000000000zXmhPgnBS0pVbovlcWrHEGe0FR0AtDLK0M0IaikTdjJYu0x0sQfOq0yUZCwN
+//    13K iterations, 234K arrangements, 66 steps

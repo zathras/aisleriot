@@ -26,6 +26,7 @@ import 'dart:typed_data';
 import 'package:aisleriot/graphics.dart';
 import 'package:flutter/foundation.dart';
 
+import '../constants.dart';
 import '../controller.dart';
 
 abstract class Board<ST extends Slot, SD extends SlotData> {
@@ -38,7 +39,7 @@ abstract class Board<ST extends Slot, SD extends SlotData> {
   void addActiveSlotGroup(Iterable<ST> slots) {
     _slotGroupCounts.add(slots.length);
     for (final slot in slots) {
-      assert(slot.slotNumber == _activeSlots.length);
+      assert(NO_ASSERT || slot.slotNumber == _activeSlots.length);
       _activeSlots.add(slot);
     }
   }
@@ -161,7 +162,7 @@ class ListSlotData extends SlotData {
         dest.add(c);
       }
     }
-    assert(r._listsOK());
+    assert(NO_ASSERT || r._assertListsOK());
     return r;
   }
 
@@ -233,7 +234,7 @@ class BigCardList extends CardList {
 }
 
 class SearchSlotData extends SlotData {
-  int goodness = -1;
+  double goodness = -1;
   final Uint8List _raw;
 
   @override
@@ -248,7 +249,7 @@ class SearchSlotData extends SlotData {
       {required int numSlots, required this.depth, required this.from})
       : _raw = _makeRaw(numSlots),
         super(numSlots) {
-    assert(() {
+    assert(NO_ASSERT || () {
       for (int i = 0; i < _numCards; i++) {
         _raw[i] = _uninitialized;
       }
@@ -297,7 +298,7 @@ class SearchSlotData extends SlotData {
     }
   }
 
-  bool _listsOK() {
+  bool _assertListsOK() {
     for (int i = 0; i < numSlots; i++) {
       assert(this[i]._listOK());
     }
@@ -393,7 +394,7 @@ class SearchCardList implements CardList {
 
   @override
   void add(Card c) {
-    assert(_raw[c.index] == SearchSlotData._uninitialized);
+    assert(NO_ASSERT || _raw[c.index] == SearchSlotData._uninitialized);
     _raw[c.index] = _top;
     _top = c.index;
     _raw[_offset]++;
@@ -410,26 +411,26 @@ class SearchCardList implements CardList {
 
   @override
   void moveStackTo(int numCards, covariant SearchCardList dest) {
-    assert(dest != this);
-    assert(numCards > 0);
-    assert(numCards <= this.numCards, '$numCards > ${this.numCards}');
+    assert(NO_ASSERT || dest != this);
+    assert(NO_ASSERT || numCards > 0);
+    assert(NO_ASSERT || numCards <= this.numCards, '$numCards > ${this.numCards}');
     int addr = _offset + 1; // Address of _top;
     int top = _raw[addr];
     for (int i = 0; i < numCards; i++) {
       addr = _raw[addr];
-      assert(addr < SearchSlotData._numCards);
+      assert(NO_ASSERT || addr < SearchSlotData._numCards);
     }
     _raw[_offset] -= numCards;
     _raw[_offset + 1] = _raw[addr];
     _raw[dest._offset] += numCards;
     _raw[addr] = _raw[dest._offset + 1];
     _raw[dest._offset + 1] = top;
-    assert(_listOK());
-    assert(dest._listOK());
+    assert(NO_ASSERT || _listOK());
+    assert(NO_ASSERT || dest._listOK());
   }
 
   bool _listOK() {
-    assert(numCards == fromTop.length, '$numCards, ${fromTop.length}');
+    assert(NO_ASSERT || numCards == fromTop.length, '$numCards, ${fromTop.length}');
     return true;
   }
 }
@@ -456,7 +457,7 @@ class _SearchCardListIterator extends Iterator<Card> {
       return false;
     }
     _current = _list._raw[_current];
-    assert(_current < SearchSlotData._numCards ||
+    assert(NO_ASSERT || _current < SearchSlotData._numCards ||
         _current == SearchSlotData._endList);
     return _current != SearchSlotData._endList;
   }
@@ -581,7 +582,7 @@ class Deck {
 
   Deck() {
     for (int i = 0; i < cards.length; i++) {
-      assert(cards[i].index == i);
+      assert(NO_ASSERT || cards[i].index == i);
     }
   }
 

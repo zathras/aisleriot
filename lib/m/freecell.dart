@@ -23,6 +23,7 @@ import 'dart:math';
 
 import 'package:aisleriot/graphics.dart';
 
+import '../constants.dart';
 import 'game.dart';
 
 abstract class _FreecellGenericSlot implements Slot {
@@ -154,7 +155,7 @@ class FreecellBoard<SD extends SlotData>
   static bool fieldSequenceQ(_SlotStack cards) {
     Card? upper;
     int toGo = cards.numCards;
-    assert(toGo > 0);
+    assert(NO_ASSERT || toGo > 0);
     for (final card in cards.slot.fromTop) {
       final u = upper;
       if (u != null && !fieldJoinQ(card, u)) {
@@ -226,8 +227,8 @@ class FreecellBoard<SD extends SlotData>
     return const [];
   }
 
-  int _calculateGoodness() {
-    int weight = 0;
+  double _calculateGoodness() {
+    double weight = 0;
     int emptyFreecells = 0;
     for (final s in freecell) {
       if (s.isEmpty) {
@@ -242,10 +243,18 @@ class FreecellBoard<SD extends SlotData>
       if (s.isEmpty) {
         emptyFields++;
       }
+      double stackWeight = 0;
       for (final card in s.fromTop) {
         final u = upper;
-        if (u == null || !FreecellBoard.fieldJoinQ(card, u)) {
-          weight++;
+        if (u == null) {
+          if (card.value != 13) {
+            weight += stackWeight + 1;
+          }
+        } else if (!FreecellBoard.fieldJoinQ(card, u)) {
+          weight += stackWeight + 1;
+          stackWeight = 0;
+        } else {
+          stackWeight += 0.25;
         }
         upper = card;
       }
@@ -264,7 +273,7 @@ class FreecellBoard<SD extends SlotData>
       }
     }
     final minMax = min(blackMax, redMax);
-    final int bonus = 20 * minMax + 100 * homeMin;
+    double bonus = 20.0 * minMax + 100.0 * homeMin;
     int mobility = (emptyFreecells + 1) * _pow2(emptyFields);
     mobility = min(mobility, 6);
     mobility *= 10000;
@@ -321,7 +330,7 @@ class FreecellBoard<SD extends SlotData>
         numCards++;
       }
     }
-    assert(identical(scratch.slotData, initial));
+    assert(NO_ASSERT || identical(scratch.slotData, initial));
   }
 
   @override
