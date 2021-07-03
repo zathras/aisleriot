@@ -18,7 +18,7 @@
 */
 
 
-const bool NO_ASSERT = false;
+const bool NDEBUG = false;
 
 /// package_info doesn't exist for all platforms, so I'm doing it the old
 /// fashioned way.

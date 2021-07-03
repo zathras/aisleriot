@@ -26,7 +26,7 @@ import 'package:flutter/services.dart' as ui;
 import 'package:jovial_svg/jovial_svg.dart';
 
 import 'controller.dart';
-import 'm/game.dart';
+import 'game.dart';
 
 //TODO:  Move CircularBuffer to jovial_misc
 

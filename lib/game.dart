@@ -26,8 +26,8 @@ import 'dart:typed_data';
 import 'package:aisleriot/graphics.dart';
 import 'package:flutter/foundation.dart';
 
-import '../constants.dart';
-import '../controller.dart';
+import 'constants.dart';
+import 'controller.dart';
 
 abstract class Board<ST extends Slot, SD extends SlotData> {
   SD slotData;
@@ -36,10 +36,12 @@ abstract class Board<ST extends Slot, SD extends SlotData> {
 
   Board(this.slotData) : _activeSlots = List<ST>.empty(growable: true);
 
+  void debugPrintGoodness();
+
   void addActiveSlotGroup(Iterable<ST> slots) {
     _slotGroupCounts.add(slots.length);
     for (final slot in slots) {
-      assert(NO_ASSERT || slot.slotNumber == _activeSlots.length);
+      assert(NDEBUG || slot.slotNumber == _activeSlots.length);
       _activeSlots.add(slot);
     }
   }
@@ -101,6 +103,8 @@ abstract class Board<ST extends Slot, SD extends SlotData> {
 
 abstract class Game<ST extends Slot> {
   final List<SlotOrLayout> slots;
+  final _undoStack = List<UndoRecord<ST>>.empty(growable: true);
+  int _undoPos = 0;
 
   Game(List<SlotOrLayout> slots) : slots = List.unmodifiable(slots) {
     assert(slots.last is CarriageReturnSlot);
@@ -111,9 +115,49 @@ abstract class Game<ST extends Slot> {
 
   GameController<ST> makeController() => GameController<ST>(this);
 
-  Board<ST, ListSlotData> get board;
+  Board<ST, ListSlotData> get board; // must be final in subclass
 
   List<Move<ST>> doubleClick(CardStack<ST> s);
+
+  Game<ST> newGame();
+
+  void addUndo(UndoRecord<ST> u) {
+    _undoStack.length = _undoPos++;
+    _undoStack.add(u);
+  }
+
+  bool get canUndo => _undoPos > 0;
+  bool get canRedo => _undoPos < _undoStack.length;
+  UndoRecord<ST> takeUndo() => _undoStack[--_undoPos];
+  UndoRecord<ST>? takeRedo({required bool onlyAutomatic}) {
+    final u = _undoStack[_undoPos];
+    if (onlyAutomatic && !u.automatic) {
+      return null;
+    } else {
+      _undoPos++;
+      return u;
+    }
+  }
+}
+
+class UndoRecord<ST extends Slot> {
+  final ST src;
+  final ST dest;
+  final int numCards;
+  final bool automatic;
+  final String? debugComment;
+
+  UndoRecord(Move<ST> move, { this.debugComment })
+      : src = move.src.slot,
+        dest = move.dest,
+        numCards = move.src.numCards,
+        automatic = move.automatic;
+
+  void printComment() {
+    if (debugComment != null) {
+      print(debugComment);
+    }
+  }
 }
 
 abstract class SlotOrLayout {
@@ -162,12 +206,12 @@ class ListSlotData extends SlotData {
         dest.add(c);
       }
     }
-    assert(NO_ASSERT || r._assertListsOK());
+    assert(NDEBUG || r._assertListsOK());
     return r;
   }
 
   @override
-  void _sortSlots(int start, int end) => throw "unreachable";
+  void _sortSlots(int start, int end) => throw 'unreachable';
 
   @override
   void setFromExternal(String ext) {
@@ -235,6 +279,7 @@ class BigCardList extends CardList {
 
 class SearchSlotData extends SlotData {
   double goodness = -1;
+  double timeCreated = 0;
   final Uint8List _raw;
 
   @override
@@ -249,12 +294,13 @@ class SearchSlotData extends SlotData {
       {required int numSlots, required this.depth, required this.from})
       : _raw = _makeRaw(numSlots),
         super(numSlots) {
-    assert(NO_ASSERT || () {
-      for (int i = 0; i < _numCards; i++) {
-        _raw[i] = _uninitialized;
-      }
-      return true;
-    }());
+    assert(NDEBUG ||
+        () {
+          for (int i = 0; i < _numCards; i++) {
+            _raw[i] = _uninitialized;
+          }
+          return true;
+        }());
     for (int i = 0; i < numSlots; i++) {
       final SearchCardList s = this[i];
       s._numCards = 0;
@@ -318,12 +364,14 @@ class SearchSlotData extends SlotData {
         sb.write('0');
       } else {
         assert(card < _numCards);
-        sb.write('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'.substring(card, card+1));
+        sb.write('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+            .substring(card, card + 1));
       }
     }
+
     sb.write(typeID);
     for (int i = 0; i < numSlots; i++) {
-      writeCard(_raw[_slotAddress(i)+1]);
+      writeCard(_raw[_slotAddress(i) + 1]);
     }
     for (int i = 0; i < _numCards; i++) {
       writeCard(_raw[i]);
@@ -350,6 +398,7 @@ class SearchSlotData extends SlotData {
         throw ArgumentError();
       }
     }
+
     for (int i = 0; i < _numCards; i++) {
       _raw[i] = charToCard(ext.codeUnitAt(i + numSlots));
     }
@@ -394,7 +443,7 @@ class SearchCardList implements CardList {
 
   @override
   void add(Card c) {
-    assert(NO_ASSERT || _raw[c.index] == SearchSlotData._uninitialized);
+    assert(NDEBUG || _raw[c.index] == SearchSlotData._uninitialized);
     _raw[c.index] = _top;
     _top = c.index;
     _raw[_offset]++;
@@ -411,26 +460,28 @@ class SearchCardList implements CardList {
 
   @override
   void moveStackTo(int numCards, covariant SearchCardList dest) {
-    assert(NO_ASSERT || dest != this);
-    assert(NO_ASSERT || numCards > 0);
-    assert(NO_ASSERT || numCards <= this.numCards, '$numCards > ${this.numCards}');
+    assert(NDEBUG || dest != this);
+    assert(NDEBUG || numCards > 0);
+    assert(
+        NDEBUG || numCards <= this.numCards, '$numCards > ${this.numCards}');
     int addr = _offset + 1; // Address of _top;
     int top = _raw[addr];
     for (int i = 0; i < numCards; i++) {
       addr = _raw[addr];
-      assert(NO_ASSERT || addr < SearchSlotData._numCards);
+      assert(NDEBUG || addr < SearchSlotData._numCards);
     }
     _raw[_offset] -= numCards;
     _raw[_offset + 1] = _raw[addr];
     _raw[dest._offset] += numCards;
     _raw[addr] = _raw[dest._offset + 1];
     _raw[dest._offset + 1] = top;
-    assert(NO_ASSERT || _listOK());
-    assert(NO_ASSERT || dest._listOK());
+    assert(NDEBUG || _listOK());
+    assert(NDEBUG || dest._listOK());
   }
 
   bool _listOK() {
-    assert(NO_ASSERT || numCards == fromTop.length, '$numCards, ${fromTop.length}');
+    assert(NDEBUG || numCards == fromTop.length,
+        '$numCards, ${fromTop.length}');
     return true;
   }
 }
@@ -457,7 +508,8 @@ class _SearchCardListIterator extends Iterator<Card> {
       return false;
     }
     _current = _list._raw[_current];
-    assert(NO_ASSERT || _current < SearchSlotData._numCards ||
+    assert(NDEBUG ||
+        _current < SearchSlotData._numCards ||
         _current == SearchSlotData._endList);
     return _current != SearchSlotData._endList;
   }
@@ -582,7 +634,7 @@ class Deck {
 
   Deck() {
     for (int i = 0; i < cards.length; i++) {
-      assert(NO_ASSERT || cards[i].index == i);
+      assert(NDEBUG || cards[i].index == i);
     }
   }
 
@@ -662,8 +714,9 @@ class Move<ST extends Slot> {
   final CardStack<ST> src;
   final ST dest;
   final bool animate;
+  final bool automatic;
 
-  Move({required this.src, required this.dest, this.animate = true});
+  Move({required this.src, required this.dest, required this.automatic, this.animate = true});
 
   ST get slot => src.slot;
 

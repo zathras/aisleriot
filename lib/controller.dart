@@ -30,18 +30,25 @@ import 'package:quiver/core.dart' as quiver;
 
 import 'constants.dart';
 import 'graphics.dart';
-import 'm/game.dart';
-import 'main.dart';
+import 'game.dart';
+
+class ChangeNotifier extends ui.ChangeNotifier {
+  // Make it public
+  @override
+  void notifyListeners() => super.notifyListeners();
+}
 
 ///
 /// Controller and view manager for Solitaire.  The GameController manages
 /// the positions of the graphical assets.  The view should register as a
 /// listener via the `ChangeNotifier` API.
 ///
-class GameController<ST extends Slot> extends ui.ChangeNotifier {
-  final Game<ST> game;
+class GameController<ST extends Slot> extends ChangeNotifier {
+  Game<ST> _game;
+  Game<ST> get game => _game;
   final List<bool> hasExtendedSlots;
   final List<double> rowHeight;
+  final gameChangeNotifier = ChangeNotifier();
 
   /// size in card widths/card heights, not accounting for extended slots
   final ui.Size sizeInCards;
@@ -58,7 +65,7 @@ class GameController<ST extends Slot> extends ui.ChangeNotifier {
   _GameAnimation<ST>? _inFlight;
   MovingStack<ST>? get movement => drag ?? _inFlight;
 
-  GameController._p(this.game, this.sizeInCards, List<bool> hasExtendedSlots,
+  GameController._p(this._game, this.sizeInCards, List<bool> hasExtendedSlots,
       List<double> rowHeight)
       : hasExtendedSlots = List.unmodifiable(hasExtendedSlots),
         rowHeight = List.unmodifiable(rowHeight),
@@ -172,17 +179,15 @@ class GameController<ST extends Slot> extends ui.ChangeNotifier {
       if (dest != null &&
           dest != d.card.slot &&
           game.board.canDrop(d.card, dest)) {
-        d.card.slot.moveStackTo(d.numCards, dest);
+        final move = Move(src: d.card, dest: dest, automatic: false);
+        move.move();
+        addUndo(UndoRecord(move));
         doAutomaticMoves();
       }
     }
     drag = null;
     notifyListeners();
   }
-
-  @override
-  void notifyListeners() => super.notifyListeners();
-  // Make it public
 
   void doAutomaticMoves([void Function() onDone = _nop]) {
     assert(_inFlight == null);
@@ -206,7 +211,7 @@ class GameController<ST extends Slot> extends ui.ChangeNotifier {
     final scratch = game.board.makeSearchBoard();
     painter.currentSearch = scratch;
     final initial = scratch.slotData;
-    print("@@ Solving ${scratch.toExternal()}");
+    print('@@ Solving ${scratch.toExternal()}');
     final q = PriorityQueue<SearchSlotData>(
         (a, b) => b.goodness.compareTo(a.goodness));
     final seen = HashSet<List<int>>(
@@ -214,26 +219,27 @@ class GameController<ST extends Slot> extends ui.ChangeNotifier {
     scratch.doAllAutomaticMoves();
     scratch.canonicalize();
     seen.add(scratch.slotData.raw);
+    final sw = Stopwatch()..start();
     scratch.calculateChildren(scratch, (k) {
+      k.timeCreated = sw.elapsedTicks / sw.frequency;
       seen.add(k.raw);
       q.add(k);
     });
-    final sw = Stopwatch()..start();
     double nextFrame = 0.25 * sw.frequency;
     unawaited(() async {
       int iterations = 0;
-      while (q.isNotEmpty) {
+      while (q.isNotEmpty && seen.length < 100000000) {
         final k = q.removeFirst();
         if (sw.elapsedTicks > nextFrame) {
           nextFrame += 0.25 * sw.frequency;
           notifyListeners();
-          print("@@ $iterations iterations");
+          print('@@ $iterations iterations');
           await Future<void>.delayed(Duration(milliseconds: 5));
         }
         scratch.slotData = k;
         if (scratch.gameWon) {
-          print(
-              "@@@@ ==> Found after $iterations iterations, duration ${sw.elapsed}.");
+          print('@@@@ ==> Found after $iterations iterations, '
+              'duration ${sw.elapsed}.');
           sw.stop();
           scratch.slotData = initial;
           SearchSlotData? next = k;
@@ -244,19 +250,96 @@ class GameController<ST extends Slot> extends ui.ChangeNotifier {
           });
           final solution = Solution(path, scratch);
           assert(next == null);
-          print("@@ Done - created ${seen.length} arrangements.");
+          print('@@ Done - created ${seen.length} arrangements.');
           painter.currentSearch = null;
           solution.run(this);
           return;
         }
         iterations++;
-        scratch.calculateChildren(scratch, (kk) {
+        scratch.calculateChildren(scratch, (final SearchSlotData kk) {
           if (seen.add(kk.raw)) {
+            kk.timeCreated = sw.elapsedTicks / sw.frequency;
             q.add(kk);
           }
         });
       }
+      if (q.isEmpty) {
+        print('@@ No solution.  Saw ${seen.length} arrangements.');
+      } else {
+        print('@@ Gave up after $iterations iterations, '
+            '${seen.length} arrangements.');
+      }
+      painter.currentSearch = null;
+      notifyListeners();
     }());
+  }
+
+  void _changeGame(void Function() f) {
+    bool oldUndo = game.canUndo;
+    bool oldRedo = game.canRedo;
+    f();
+    if ((game.canRedo != oldRedo) || (game.canUndo != oldUndo)) {
+      gameChangeNotifier.notifyListeners();
+    }
+  }
+
+  void addUndo(UndoRecord<ST> u) {
+    _changeGame(() => game.addUndo(u));
+  }
+
+  void newGame() {
+    _finishPending();
+    _game = game.newGame();
+    notifyListeners();
+    gameChangeNotifier.notifyListeners();
+  }
+
+  void undo() {
+    if (_inFlight != null) {
+      _inFlight!.finish();
+      _inFlight?.cancel();
+      _inFlight = null;
+      notifyListeners();
+    }
+    if (game.canUndo) {
+      UndoRecord<ST>? undoN;
+      _changeGame(() {
+        undoN = game.takeUndo();
+      });
+      final u = undoN!;
+      u.printComment();
+      final Card bottom = u.dest.cardDownFromTop(u.numCards - 1);
+      final cs = CardStack(u.dest, u.numCards, bottom);
+      final move = Move(src: cs, dest: u.src, automatic: u.automatic);
+      _inFlight = _GameAnimation<ST>(this, [move], () {
+        if (u.automatic) {
+          undo();
+        }
+      }, isUndo: true);
+      notifyListeners();
+    }
+  }
+
+  void redo({bool onlyAutomatic = false}) {
+    _finishPending();
+    if (game.canRedo) {
+      UndoRecord<ST>? undoN;
+      _changeGame(() {
+        undoN = game.takeRedo(onlyAutomatic: onlyAutomatic);
+      });
+      if (undoN == null) {
+        return;
+      }
+      final u = undoN!;
+      u.printComment();
+      final Card bottom = u.src.cardDownFromTop(u.numCards - 1);
+      final cs = CardStack(u.src, u.numCards, bottom);
+      final move = Move(src: cs, dest: u.dest, automatic: u.automatic);
+      _inFlight = _GameAnimation<ST>(this, [move], () {
+        redo(onlyAutomatic: true);
+      }, isUndo: true);
+      notifyListeners();
+    }
   }
 }
 
@@ -308,8 +391,8 @@ class Solution<ST extends Slot> {
   bool get done => nextStep < 0;
 
   void run(GameController<ST> controller) {
-    print("@@ Solution has ${path.length} steps");
-    assert(path.isEmpty || path[path.length-1].from == null);
+    print('@@ Solution has ${path.length} steps');
+    assert(path.isEmpty || path[path.length - 1].from == null);
     controller.doAutomaticMoves(() => _moveCompleted(controller));
   }
 
@@ -317,13 +400,15 @@ class Solution<ST extends Slot> {
   void _moveCompleted(GameController<ST> controller) {
     int nextEmptySlot = 0;
     final board = controller.game.board;
-    assert(NO_ASSERT || quiver.listsEqual(
-        (board.makeSearchBoard()..canonicalize()).slotData.raw,
-        scratch.slotData.raw));
-    assert(NO_ASSERT || () {
-      slotMap.fillRange(0, slotMap.length, -1);
-      return true;
-    }());
+    assert(NDEBUG ||
+        quiver.listsEqual(
+            (board.makeSearchBoard()..canonicalize()).slotData.raw,
+            scratch.slotData.raw));
+    assert(NDEBUG ||
+        () {
+          slotMap.fillRange(0, slotMap.length, -1);
+          return true;
+        }());
     for (int i = 0; i < slotMap.length; i++) {
       final realSlot = board.slotFromNumber(i);
       int canonicalized = -1;
@@ -344,7 +429,7 @@ class Solution<ST extends Slot> {
       }
       slotMap[canonicalized] = i;
     }
-    assert(NO_ASSERT || !slotMap.any((v) => v < 0));
+    assert(NDEBUG || !slotMap.any((v) => v < 0));
     _takeNextStep(controller);
   }
 
@@ -373,13 +458,16 @@ class Solution<ST extends Slot> {
       final Card bottom = srcSlot.cardDownFromTop(step.viaNumCards - 1);
       final src = CardStack(srcSlot, step.viaNumCards, bottom);
       final dest = board.slotFromNumber(slotMap[step.viaSlotTo]);
-      final move = Move(src: src, dest: dest);
-      assert(NO_ASSERT || controller._inFlight == null);
-      assert(NO_ASSERT || board.canSelect(src));
-      assert(NO_ASSERT || board.canDrop(
-          FoundCard(srcSlot, step.viaNumCards, bottom, ui.Rect.zero), dest));
-      controller._inFlight = _GameAnimation<ST>(
-          controller, [move], () => controller.doAutomaticMoves(() => _moveCompleted(controller)));
+      final move = Move(src: src, dest: dest, automatic: false);
+      assert(NDEBUG || controller._inFlight == null);
+      assert(NDEBUG || board.canSelect(src));
+      assert(NDEBUG ||
+          board.canDrop(
+              FoundCard(srcSlot, step.viaNumCards, bottom, ui.Rect.zero),
+              dest));
+      controller._inFlight = _GameAnimation<ST>(controller, [move],
+          () => controller.doAutomaticMoves(() => _moveCompleted(controller)),
+          debugComment: 'Step generated at ${step.timeCreated}');
     }());
   }
 }
@@ -418,6 +506,8 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
   final GameController<ST> controller;
   final List<Move<ST>> moves;
   final void Function() onFinished;
+  final bool isUndo;
+  final String? debugComment;
   int move = 0;
   final Stopwatch time = Stopwatch();
   int lastTicks = 0;
@@ -425,9 +515,10 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
   ui.Offset movePos = ui.Offset.zero;
   ui.Offset moveDest = ui.Offset.zero;
 
-  static const double speed = 75; // card widths/second
+  static const double speed = 150; // card widths/second
 
-  _GameAnimation(this.controller, this.moves, this.onFinished) {
+  _GameAnimation(this.controller, this.moves, this.onFinished,
+      {this.isUndo = false, this.debugComment}) {
     timer = Timer.periodic(
         Duration(microseconds: (1000000 / 300).ceil()), _timerTick);
     // 300 Hz is faster than needed, but the amount of work done here is
@@ -441,7 +532,7 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
 
   void _setPositions() {
     while (!finished && !moves[move].animate) {
-      moves[move++].move();
+      takeMove(moves[move++]);
     }
     if (finished) {
       finish();
@@ -469,7 +560,7 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
         break;
       } else {
         dist -= deltaD;
-        moves[move++].move();
+        takeMove(moves[move++]);
         _setPositions();
         if (finished) {
           break;
@@ -482,14 +573,30 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
 
   void finish() {
     while (move < moves.length) {
-      moves[move++].move();
+      takeMove(moves[move++]);
     }
     time.stop();
     timer.cancel();
-    assert(NO_ASSERT || controller._inFlight == this);
+    assert(NDEBUG || controller._inFlight == this, '${controller._inFlight}');
     controller._inFlight = null;
     controller.notifyListeners();
     onFinished();
+  }
+
+  void takeMove(Move<ST> m) {
+    m.move();
+    if (!isUndo) {
+      if (debugComment != null) {
+        print(debugComment);
+      }
+      controller.addUndo(UndoRecord(m, debugComment: debugComment));
+    }
+    controller.game.board.debugPrintGoodness();
+  }
+
+  void cancel() {
+    time.stop();
+    timer.cancel();
   }
 
   @override
@@ -519,3 +626,12 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
 //    9K iterations, 74K arrangements, 65 steps
 //  f000000000zXmhPgnBS0pVbovlcWrHEGe0FR0AtDLK0M0IaikTdjJYu0x0sQfOq0yUZCwN
 //    13K iterations, 234K arrangements, 66 steps
+//
+// Hard before 7/2 putback:
+//  f000000000CruRfDMsot0bmHFwjGiATZVKvlzOd0NQcgx0XeBEyU00Y0S0WJqkpnhPLaI0
+//     now .6 seconds
+// Hard:
+//  f000000000utMHJidl0ymExZ0AOnzkh0GPQCocvYeTaNqSLWFbUs0rgfXjDI000RBpKwV0
+//     517K iterations, 7M arrangements, 51 steps 1:32
+//  f000000000gelDzxtWOwv0jQV0CXrFP0dyU0SEM0GbsTLmIpBicnqfZ0A0khoNHa0JKuRY
+//     206K iterations, 3.9M arrangements, 70 steps, 0:49

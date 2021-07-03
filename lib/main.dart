@@ -33,10 +33,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'controller.dart';
 import 'constants.dart';
-import 'm/freecell.dart';
+import 'games/freecell.dart';
 
 void main() async {
-  // Get there first!
+  // Get there first.
   LicenseRegistry.addLicense(Assets._getLicenses);
 
   WidgetsFlutterBinding.ensureInitialized();
@@ -152,9 +152,23 @@ class _MainWindowState extends State<MainWindow> {
   GamePainter? painter;
   Settings settings;
   bool _first = true;
-  GameController controller = Freecell().makeController();
+  final GameController controller = Freecell().makeController();
 
   _MainWindowState(this.lastDeckSelected, this.settings);
+
+  @override
+  void initState() {
+    super.initState();
+    controller.gameChangeNotifier.addListener(_stateChanged);
+  }
+
+  @override
+  void dispose() {
+    controller.gameChangeNotifier.removeListener(_stateChanged);
+    super.dispose();
+  }
+
+  void _stateChanged() => setState(() {});
 
   @override
   Widget build(BuildContext context) {
@@ -237,19 +251,24 @@ class _MainWindowState extends State<MainWindow> {
           return <PopupMenuEntry<void Function()>>[
             PopupMenuItem(value: () {}, child: _saveMenu(context)),
             PopupMenuItem(
-                enabled: true,
-                value: () {},
+                enabled: controller.game.canUndo,
+                value: () => controller.undo(),
                 child: Row(children: [Icon(Icons.arrow_back), Text(' Undo')])),
             PopupMenuItem(
                 enabled: true,
                 value: () => controller.solve(),
                 child: Text(r'¯\_(ツ)_/¯  Solve')),
             PopupMenuItem(
-                enabled: true,
-                value: () {},
+                enabled: controller.game.canRedo,
+                value: () => controller.redo(),
                 child:
                     Row(children: [Icon(Icons.arrow_forward), Text(' Redo')])),
-            PopupMenuItem(enabled: true, value: () {}, child: Text('New Game')),
+            PopupMenuItem(
+                enabled: true,
+                value: () {
+                  controller.newGame();
+                },
+                child: Text('New Game')),
             PopupMenuItem(value: () {}, child: _settingsMenu(context)),
             PopupMenuItem(
                 value: () {},
@@ -416,7 +435,9 @@ class ButtonArea extends StatelessWidget {
                                 child: Padding(
                                     padding: EdgeInsets.fromLTRB(0, 0, 8, 0),
                                     child: ElevatedButton(
-                                      onPressed: () {},
+                                      onPressed: () {
+                                        state.controller.newGame();
+                                      },
                                       child: Text(
                                         'New Game',
                                       ), // color: Settings.foregroundColor),
@@ -438,7 +459,9 @@ class ButtonArea extends StatelessWidget {
                                   child: SizedBox(
                                       width: 40,
                                       child: ElevatedButton(
-                                        onPressed: () {},
+                                        onPressed: state.controller.game.canUndo
+                                            ? () => state.controller.undo()
+                                            : null,
                                         child: Icon(
                                           Icons.arrow_back,
                                         ), // color: Settings.foregroundColor),
@@ -448,7 +471,9 @@ class ButtonArea extends StatelessWidget {
                                   child: SizedBox(
                                       width: 40,
                                       child: ElevatedButton(
-                                        onPressed: () {},
+                                        onPressed: state.controller.game.canRedo
+                                            ? () => state.controller.redo()
+                                            : null,
                                         child: Icon(
                                           Icons.arrow_forward,
                                         ), // color: Settings.foregroundColor),
@@ -480,7 +505,9 @@ class ButtonArea extends StatelessWidget {
             ...(w > 630
                 ? [
                     ElevatedButton(
-                        onPressed: () {},
+                        onPressed: () {
+                          state.controller.newGame();
+                        },
                         child: Text(
                           'New Game',
                         )), // color: Settings.foregroundColor),
@@ -500,7 +527,9 @@ class ButtonArea extends StatelessWidget {
                         child: SizedBox(
                             width: 40,
                             child: ElevatedButton(
-                              onPressed: () {},
+                              onPressed: state.controller.game.canUndo
+                                  ? () => state.controller.undo()
+                                  : null,
                               child: Icon(
                                 Icons.arrow_back,
                               ), // color: Settings.foregroundColor),
@@ -518,7 +547,9 @@ class ButtonArea extends StatelessWidget {
                         child: SizedBox(
                             width: 40,
                             child: ElevatedButton(
-                              onPressed: null,
+                              onPressed: state.controller.game.canRedo
+                                  ? () => state.controller.redo()
+                                  : null,
                               child: Icon(
                                 Icons.arrow_forward,
                               ), // color: Settings.foregroundColor),
@@ -768,9 +799,8 @@ class _GameCustomPainter extends CustomPainter {
   }
 }
 
-
 Future<void> showErrorDialog(
-    BuildContext context, String message, Object? exception) =>
+        BuildContext context, String message, Object? exception) =>
     showDialog(
         context: context,
         builder: (BuildContext context) => ErrorDialog(message, exception));
@@ -798,11 +828,11 @@ class ErrorDialog extends StatelessWidget {
       content: (exception == null)
           ? Text('')
           : SingleChildScrollView(
-        child: Column(children: [
-          SizedBox(height: 20),
-          Text(exs),
-        ]),
-      ),
+              child: Column(children: [
+                SizedBox(height: 20),
+                Text(exs),
+              ]),
+            ),
       actions: <Widget>[
         // usually buttons at the bottom of the dialog
         TextButton(
