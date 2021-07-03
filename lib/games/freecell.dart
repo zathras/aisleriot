@@ -299,65 +299,77 @@ class FreecellBoard<SD extends SlotData>
 
   @override
   void calculateChildren(FreecellBoard<SearchSlotData> scratch,
-      bool Function(SearchSlotData child) accepted) {
+          bool Function(SearchSlotData child) accepted) =>
+      _ChildCalculator(scratch, accepted).run();
 
-    void moveTo(_SlotStack src, List<_FreecellGenericSlot> slots,
-        void Function(_FieldSlot) tryFromField,
-        {bool justOne = false}) {
-      final SearchSlotData initial = scratch.slotData;
-      for (final dest in slots) {
-        if (dest != src.slot && dest.movableTo(src, this)) {
-          final child = initial.copy(initial.depth + 1);
-          scratch.slotData = child;
-          child.viaSlotFrom = src.slot.slotNumber;
-          child.viaSlotTo = dest.slotNumber;
-          child.viaNumCards = src.numCards;
-          _Move(src: src, dest: dest, automatic: false).move();
-          scratch.doAllAutomaticMoves();
-          final srcTop = src.slot.isEmpty ? null : src.slot.top;
-          scratch.canonicalize();
-          child.goodness = scratch._calculateGoodness();
-          final more = accepted(child);
-          if (more && srcTop != null) {
-            // src must be a field slot, so we explore further up that slot.
-            _FieldSlot? newSrc;
-            for (final s in scratch.field) {
-              if (s.top == srcTop) {
-                newSrc = s;
-                break;
-              }
+  @override
+  // TODO: implement externalID
+  String get externalID => 'f0'; // freecell version 0
+}
+
+class _ChildCalculator {
+  final FreecellBoard<SearchSlotData> scratch;
+  final bool Function(SearchSlotData child) accepted;
+
+  _ChildCalculator(this.scratch, this.accepted);
+
+  void moveTo(_SlotStack src, List<_FreecellGenericSlot> slots,
+      {bool justOne = false}) {
+    final SearchSlotData initial = scratch.slotData;
+    for (final dest in slots) {
+      if (dest != src.slot && dest.movableTo(src, scratch)) {
+        final child = initial.copy(initial.depth + 1);
+        scratch.slotData = child;
+        child.viaSlotFrom = src.slot.slotNumber;
+        child.viaSlotTo = dest.slotNumber;
+        child.viaNumCards = src.numCards;
+        _Move(src: src, dest: dest, automatic: false).move();
+        scratch.doAllAutomaticMoves();
+        final srcTop = src.slot.isEmpty ? null : src.slot.top;
+        scratch.canonicalize();
+        child.goodness = scratch._calculateGoodness();
+        final more = accepted(child);
+        if (more && srcTop != null) {
+          // src must be a field slot, so we explore further up that slot.
+          _FieldSlot? newSrc;
+          for (final s in scratch.field) {
+            if (s.top == srcTop) {
+              newSrc = s;
+              break;
             }
-            assert(newSrc != null);
-            tryFromField(newSrc!);
           }
-          scratch.slotData = initial;
-          if (justOne) {
-            break;
-          }
+          assert(newSrc != null);
+          tryFromField(newSrc!);
         }
-      }
-    }
-
-    void tryFromField(_FieldSlot s) {
-      int numCards = 1;
-      for (final bottom in s.fromTop) {
-        final src = _SlotStack(s, numCards, bottom);
-        if (!s.canSelect(src, this)) {
+        scratch.slotData = initial;
+        if (justOne) {
           break;
         }
-        moveTo(src, scratch.homecell, tryFromField, justOne: true);
-        moveTo(src, scratch.freecell, tryFromField, justOne: true);
-        moveTo(src, scratch.field, tryFromField);
-        numCards++;
       }
     }
+  }
 
+  void tryFromField(_FieldSlot s) {
+    int numCards = 1;
+    for (final bottom in s.fromTop) {
+      final src = _SlotStack(s, numCards, bottom);
+      if (!s.canSelect(src, scratch)) {
+        break;
+      }
+      moveTo(src, scratch.homecell, justOne: true);
+      moveTo(src, scratch.freecell, justOne: true);
+      moveTo(src, scratch.field);
+      numCards++;
+    }
+  }
+
+  void run() {
     final SearchSlotData initial = scratch.slotData;
     for (final s in scratch.freecell) {
       if (s.isNotEmpty) {
         final src = _SlotStack(s, 1, s.top);
-        moveTo(src, scratch.homecell, tryFromField, justOne: true);
-        moveTo(src, scratch.field, tryFromField);
+        moveTo(src, scratch.homecell, justOne: true);
+        moveTo(src, scratch.field);
       }
     }
     for (final s in scratch.field) {
@@ -366,9 +378,6 @@ class FreecellBoard<SD extends SlotData>
     assert(NDEBUG || identical(scratch.slotData, initial));
   }
 
-  @override
-  // TODO: implement externalID
-  String get externalID => 'f0'; // freecell version 0
 }
 
 class Freecell extends Game<_FreecellGenericSlot> {

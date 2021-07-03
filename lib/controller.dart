@@ -633,7 +633,7 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
 //
 // Hard before 7/2 putback:
 //  f000000000CruRfDMsot0bmHFwjGiATZVKvlzOd0NQcgx0XeBEyU00Y0S0WJqkpnhPLaI0
-//     now .6 seconds
+//     now .3 seconds
 // Hard before 7/2 tryFromField putback:
 //  f000000000utMHJidl0ymExZ0AOnzkh0GPQCocvYeTaNqSLWFbUs0rgfXjDI000RBpKwV0
 //     517K iterations, 7M arrangements, 51 steps 1:32
@@ -641,4 +641,6 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
 //  f000000000gelDzxtWOwv0jQV0CXrFP0dyU0SEM0GbsTLmIpBicnqfZ0A0khoNHa0JKuRY
 //     206K iterations, 3.9M arrangements, 70 steps, 0:49
 //     Now .3 seconds
+// 1.5 seconds, 1696 iterations, 147K arrangement, 58 steps:
+//    f000000000wQcWqDBV0Hb0uYzJTR0jOkFatC0hmXfgiNIvpGoAey0LUdPn00xs0SrEKZlM
 // Hard:
