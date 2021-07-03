@@ -74,7 +74,7 @@ abstract class Board<ST extends Slot, SD extends SlotData> {
   Board<ST, SearchSlotData> makeSearchBoard();
 
   void calculateChildren(covariant Board<ST, SearchSlotData> scratch,
-      void Function(SearchSlotData child) f);
+      bool Function(SearchSlotData child) accepted);
 
   void canonicalize() {
     int start = 0;

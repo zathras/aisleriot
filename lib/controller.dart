@@ -224,6 +224,7 @@ class GameController<ST extends Slot> extends ChangeNotifier {
       k.timeCreated = sw.elapsedTicks / sw.frequency;
       seen.add(k.raw);
       q.add(k);
+      return true;
     });
     double nextFrame = 0.25 * sw.frequency;
     unawaited(() async {
@@ -260,6 +261,9 @@ class GameController<ST extends Slot> extends ChangeNotifier {
           if (seen.add(kk.raw)) {
             kk.timeCreated = sw.elapsedTicks / sw.frequency;
             q.add(kk);
+            return true;
+          } else {
+            return false;
           }
         });
       }
@@ -586,12 +590,12 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
   void takeMove(Move<ST> m) {
     m.move();
     if (!isUndo) {
-      if (debugComment != null) {
-        print(debugComment);
-      }
+      // if (debugComment != null) {
+      //   print(debugComment);
+      // }
       controller.addUndo(UndoRecord(m, debugComment: debugComment));
     }
-    controller.game.board.debugPrintGoodness();
+    // controller.game.board.debugPrintGoodness();
   }
 
   void cancel() {
@@ -630,8 +634,11 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
 // Hard before 7/2 putback:
 //  f000000000CruRfDMsot0bmHFwjGiATZVKvlzOd0NQcgx0XeBEyU00Y0S0WJqkpnhPLaI0
 //     now .6 seconds
-// Hard:
+// Hard before 7/2 tryFromField putback:
 //  f000000000utMHJidl0ymExZ0AOnzkh0GPQCocvYeTaNqSLWFbUs0rgfXjDI000RBpKwV0
 //     517K iterations, 7M arrangements, 51 steps 1:32
+//     Now .4 seconds
 //  f000000000gelDzxtWOwv0jQV0CXrFP0dyU0SEM0GbsTLmIpBicnqfZ0A0khoNHa0JKuRY
 //     206K iterations, 3.9M arrangements, 70 steps, 0:49
+//     Now .3 seconds
+// Hard:
