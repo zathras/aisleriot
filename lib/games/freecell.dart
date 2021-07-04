@@ -303,7 +303,6 @@ class FreecellBoard<SD extends SlotData>
       _ChildCalculator(scratch, accepted).run();
 
   @override
-  // TODO: implement externalID
   String get externalID => 'f0'; // freecell version 0
 }
 
@@ -312,6 +311,21 @@ class _ChildCalculator {
   final bool Function(SearchSlotData child) accepted;
 
   _ChildCalculator(this.scratch, this.accepted);
+
+  void run() {
+    final SearchSlotData initial = scratch.slotData;
+    for (final s in scratch.freecell) {
+      if (s.isNotEmpty) {
+        final src = _SlotStack(s, 1, s.top);
+        moveTo(src, scratch.homecell, justOne: true);
+        moveTo(src, scratch.field);
+      }
+    }
+    for (final s in scratch.field) {
+      tryFromField(s);
+    }
+    assert(NDEBUG || identical(scratch.slotData, initial));
+  }
 
   void moveTo(_SlotStack src, List<_FreecellGenericSlot> slots,
       {bool justOne = false}) {
@@ -362,22 +376,6 @@ class _ChildCalculator {
       numCards++;
     }
   }
-
-  void run() {
-    final SearchSlotData initial = scratch.slotData;
-    for (final s in scratch.freecell) {
-      if (s.isNotEmpty) {
-        final src = _SlotStack(s, 1, s.top);
-        moveTo(src, scratch.homecell, justOne: true);
-        moveTo(src, scratch.field);
-      }
-    }
-    for (final s in scratch.field) {
-      tryFromField(s);
-    }
-    assert(NDEBUG || identical(scratch.slotData, initial));
-  }
-
 }
 
 class Freecell extends Game<_FreecellGenericSlot> {

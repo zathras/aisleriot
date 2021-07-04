@@ -73,6 +73,7 @@ abstract class Board<ST extends Slot, SD extends SlotData> {
 
   Board<ST, SearchSlotData> makeSearchBoard();
 
+  /// scratch should be identical to this, but it has a more specific type.
   void calculateChildren(covariant Board<ST, SearchSlotData> scratch,
       bool Function(SearchSlotData child) accepted);
 

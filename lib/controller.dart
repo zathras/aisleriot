@@ -49,6 +49,7 @@ class GameController<ST extends Slot> extends ChangeNotifier {
   final List<bool> hasExtendedSlots;
   final List<double> rowHeight;
   final gameChangeNotifier = ChangeNotifier();
+  Solver<ST>? _solver;
 
   /// size in card widths/card heights, not accounting for extended slots
   final ui.Size sizeInCards;
@@ -121,17 +122,18 @@ class GameController<ST extends Slot> extends ChangeNotifier {
   }
 
   void _finishPending() {
+    stopSolve();
     while (_inFlight != null) {
       _inFlight!.finish();
     }
   }
 
   void doubleClick() {
+    _finishPending();
     final dc = doubleClickCard;
     if (dc == null) {
       return;
     }
-    _finishPending();
     final List<Move<ST>> todo = game.doubleClick(dc);
     if (todo.isEmpty) {
       return;
@@ -140,17 +142,17 @@ class GameController<ST extends Slot> extends ChangeNotifier {
   }
 
   void clickStart(ui.Offset pos) {
-    pos = addPaintOffset(pos);
+    // pos = addPaintOffset(pos);
     // final f = finder.find(pos, size, this);
   }
 
   void click() {}
 
   void dragStart(ui.Offset pos) {
+    _finishPending();
     pos = addPaintOffset(pos);
     final f = _finder.find(pos, this);
     if (f != null && game.board.canSelect(f)) {
-      _finishPending();
       drag = Drag(f, pos);
       notifyListeners();
     }
@@ -207,77 +209,6 @@ class GameController<ST extends Slot> extends ChangeNotifier {
       ? pos
       : ui.Offset(pos.dx - _painter.lastPaintOffset, pos.dy);
 
-  void solve() {
-    final scratch = game.board.makeSearchBoard();
-    painter.currentSearch = scratch;
-    final initial = scratch.slotData;
-    print('@@ Solving ${scratch.toExternal()}');
-    final q = PriorityQueue<SearchSlotData>(
-        (a, b) => b.goodness.compareTo(a.goodness));
-    final seen = HashSet<List<int>>(
-        equals: quiver.listsEqual, hashCode: quiver.hashObjects);
-    scratch.doAllAutomaticMoves();
-    scratch.canonicalize();
-    seen.add(scratch.slotData.raw);
-    final sw = Stopwatch()..start();
-    scratch.calculateChildren(scratch, (k) {
-      k.timeCreated = sw.elapsedTicks / sw.frequency;
-      seen.add(k.raw);
-      q.add(k);
-      return true;
-    });
-    double nextFrame = 0.25 * sw.frequency;
-    unawaited(() async {
-      int iterations = 0;
-      while (q.isNotEmpty && seen.length < 100000000) {
-        final k = q.removeFirst();
-        if (sw.elapsedTicks > nextFrame) {
-          nextFrame += 0.25 * sw.frequency;
-          notifyListeners();
-          print('@@ $iterations iterations');
-          await Future<void>.delayed(Duration(milliseconds: 5));
-        }
-        scratch.slotData = k;
-        if (scratch.gameWon) {
-          print('@@@@ ==> Found after $iterations iterations, '
-              'duration ${sw.elapsed}.');
-          sw.stop();
-          scratch.slotData = initial;
-          SearchSlotData? next = k;
-          final path = List.generate(k.depth + 1, (_) {
-            final sd = next!;
-            next = sd.from;
-            return sd;
-          });
-          final solution = Solution(path, scratch);
-          assert(next == null);
-          print('@@ Done - created ${seen.length} arrangements.');
-          painter.currentSearch = null;
-          solution.run(this);
-          return;
-        }
-        iterations++;
-        scratch.calculateChildren(scratch, (final SearchSlotData kk) {
-          if (seen.add(kk.raw)) {
-            kk.timeCreated = sw.elapsedTicks / sw.frequency;
-            q.add(kk);
-            return true;
-          } else {
-            return false;
-          }
-        });
-      }
-      if (q.isEmpty) {
-        print('@@ No solution.  Saw ${seen.length} arrangements.');
-      } else {
-        print('@@ Gave up after $iterations iterations, '
-            '${seen.length} arrangements.');
-      }
-      painter.currentSearch = null;
-      notifyListeners();
-    }());
-  }
-
   void _changeGame(void Function() f) {
     bool oldUndo = game.canUndo;
     bool oldRedo = game.canRedo;
@@ -299,12 +230,8 @@ class GameController<ST extends Slot> extends ChangeNotifier {
   }
 
   void undo() {
-    if (_inFlight != null) {
-      _inFlight!.finish();
-      _inFlight?.cancel();
-      _inFlight = null;
-      notifyListeners();
-    }
+    stopSolve();
+    _finishPending();
     if (game.canUndo) {
       UndoRecord<ST>? undoN;
       _changeGame(() {
@@ -345,6 +272,111 @@ class GameController<ST extends Slot> extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  void solve() {
+    _finishPending();
+    assert(_solver == null);
+    final s = _solver = SolutionSearcher(this);
+    s.solve();
+  }
+
+  void stopSolve() {
+    _solver?.stop();
+    _solver = null;
+  }
+}
+
+abstract class Solver<ST extends Slot> {
+  void stop();
+}
+
+class SolutionSearcher<ST extends Slot> extends Solver<ST> {
+  final GameController<ST> controller;
+  final Board<ST, ListSlotData> board;
+  bool _stopped = false;
+  static final int maxArrangements = (ui.kIsWeb) ? 10000000 : 100000000;
+
+
+  SolutionSearcher(GameController<ST> controller) :
+      controller = controller,
+      board = controller.game.board;
+
+  @override
+  void stop() {
+    _stopped = true;
+    controller.painter.currentSearch = null;
+  }
+
+  void solve() {
+    final scratch = board.makeSearchBoard();
+    controller.painter.currentSearch = scratch;
+    final initial = scratch.slotData;
+    print('@@ Solving ${scratch.toExternal()}');
+    final q = PriorityQueue<SearchSlotData>(
+            (a, b) => b.goodness.compareTo(a.goodness));
+    final seen = HashSet<List<int>>(
+        equals: quiver.listsEqual, hashCode: quiver.hashObjects);
+    scratch.doAllAutomaticMoves();
+    scratch.canonicalize();
+    seen.add(scratch.slotData.raw);
+    final sw = Stopwatch()..start();
+    scratch.calculateChildren(scratch, (k) {
+      k.timeCreated = sw.elapsedTicks / sw.frequency;
+      seen.add(k.raw);
+      q.add(k);
+      return true;
+    });
+    double nextFrame = 0.25 * sw.frequency;
+    unawaited(() async {
+      int iterations = 0;
+      while (q.isNotEmpty && seen.length < maxArrangements) {
+        if (_stopped) {
+          return;
+        }
+        final k = q.removeFirst();
+        scratch.slotData = k;
+        if (sw.elapsedTicks > nextFrame) {
+          nextFrame += 0.25 * sw.frequency;
+          controller.notifyListeners();
+          print('@@ $iterations iterations');
+          await Future<void>.delayed(Duration(milliseconds: 2));
+        }
+        if (scratch.gameWon) {
+          print('@@ Done - $iterations iterations, duration ${sw.elapsed}, ''created ${seen.length} arrangements.');
+          sw.stop();
+          scratch.slotData = initial;
+          SearchSlotData? next = k;
+          final path = List.generate(k.depth + 1, (_) {
+            final sd = next!;
+            next = sd.from;
+            return sd;
+          });
+          final solution = Solution(path, scratch);
+          assert(next == null);
+          assert(!_stopped);
+          stop();
+          controller._solver = solution;
+          solution.run(controller);
+          return;
+        }
+        iterations++;
+        scratch.calculateChildren(scratch, (final SearchSlotData kk) {
+          if (seen.add(kk.raw)) {
+            kk.timeCreated = sw.elapsedTicks / sw.frequency;
+            q.add(kk);
+            return true;
+          } else {
+            return false;
+          }
+        });
+      }
+      final msg = q.isEmpty ? '@@ No solution.  ' : '@@ Gave up.  ';
+      print('$msg, $iterations iterations, ${seen.length} arrangements'' in ${sw.elapsed}.');
+      sw.stop();
+      controller.stopSolve();
+      controller.notifyListeners();
+    }());
+  }
 }
 
 ///
@@ -371,7 +403,7 @@ class GameController<ST extends Slot> extends ChangeNotifier {
 /// top, where m? is viaXXX.  For the pictured graph, path would contain
 /// [s3, s2, s1, s0].
 ///
-class Solution<ST extends Slot> {
+class Solution<ST extends Slot> extends Solver<ST> {
   /// The path to the solution, in reverse order.
   /// path[0] is the solved game.
   final List<SearchSlotData> path;
@@ -386,11 +418,16 @@ class Solution<ST extends Slot> {
   /// A board we can modify as we go
   final Board<ST, SearchSlotData> scratch;
 
+  bool _stopped = false;
+
   Solution(List<SearchSlotData> path, Board<ST, SearchSlotData> scratch)
       : path = path,
         nextStep = path.length - 1,
         scratch = scratch,
         slotMap = List<int>.generate(scratch.numSlots, (i) => i);
+
+  @override
+  void stop() => _stopped = true;
 
   bool get done => nextStep < 0;
 
@@ -400,7 +437,7 @@ class Solution<ST extends Slot> {
     controller.doAutomaticMoves(() => _moveCompleted(controller));
   }
 
-  /// Now, both scrath and game are at one of the "s" states along the top.
+  /// Now, both scratch and game are at one of the "s" states along the top.
   void _moveCompleted(GameController<ST> controller) {
     int nextEmptySlot = 0;
     final board = controller.game.board;
@@ -440,39 +477,27 @@ class Solution<ST extends Slot> {
   /// The first time through, scratch is at the state state s0, then s1, etc.
   void _takeNextStep(GameController<ST> controller) {
     nextStep--;
-    if (nextStep < 0) {
-      assert(controller.game.board.gameWon);
+    if (_stopped || nextStep < 0) {
+      assert(_stopped || controller.game.board.gameWon);
       return;
     }
     final step = path[nextStep];
     scratch.slotData = step;
-    unawaited(() async {
-/*
-      controller.notifyListeners();
-      await Future<void>.delayed(Duration(seconds: 1));
-      controller.painter.currentSearch = scratch;
-      controller.notifyListeners();
-      await Future<void>.delayed(Duration(seconds: 1));
-      controller.painter.currentSearch = null;
-      controller.notifyListeners();
-      await Future<void>.delayed(Duration(seconds: 1));
- */
-      final board = controller.game.board;
-      final srcSlot = board.slotFromNumber(slotMap[step.viaSlotFrom]);
-      final Card bottom = srcSlot.cardDownFromTop(step.viaNumCards - 1);
-      final src = CardStack(srcSlot, step.viaNumCards, bottom);
-      final dest = board.slotFromNumber(slotMap[step.viaSlotTo]);
-      final move = Move(src: src, dest: dest, automatic: false);
-      assert(NDEBUG || controller._inFlight == null);
-      assert(NDEBUG || board.canSelect(src));
-      assert(NDEBUG ||
-          board.canDrop(
-              FoundCard(srcSlot, step.viaNumCards, bottom, ui.Rect.zero),
-              dest));
-      controller._inFlight = _GameAnimation<ST>(controller, [move],
-          () => controller.doAutomaticMoves(() => _moveCompleted(controller)),
-          debugComment: 'Step generated at ${step.timeCreated}');
-    }());
+    final board = controller.game.board;
+    final srcSlot = board.slotFromNumber(slotMap[step.viaSlotFrom]);
+    final Card bottom = srcSlot.cardDownFromTop(step.viaNumCards - 1);
+    final src = CardStack(srcSlot, step.viaNumCards, bottom);
+    final dest = board.slotFromNumber(slotMap[step.viaSlotTo]);
+    final move = Move(src: src, dest: dest, automatic: false);
+    assert(NDEBUG || controller._inFlight == null);
+    assert(NDEBUG || board.canSelect(src));
+    assert(NDEBUG ||
+        board.canDrop(
+            FoundCard(srcSlot, step.viaNumCards, bottom, ui.Rect.zero),
+            dest));
+    controller._inFlight = _GameAnimation<ST>(controller, [move],
+        () => controller.doAutomaticMoves(() => _moveCompleted(controller)),
+        debugComment: 'Step generated at ${step.timeCreated}');
   }
 }
 
@@ -643,4 +668,8 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
 //     Now .3 seconds
 // 1.5 seconds, 1696 iterations, 147K arrangement, 58 steps:
 //    f000000000wQcWqDBV0Hb0uYzJTR0jOkFatC0hmXfgiNIvpGoAey0LUdPn00xs0SrEKZlM
+// 3 seconds, 3321 iterations, 330K arrangements, 55 steps:
+//    f000000000cPyupVkRt0q0i00SNoH0TXmwWnhsrgDZjEQfYCLv0OB0JGUxMeFa0KbAzIld
+// 3.8 seconds, 4184 iterations, 463K arrangements, 59 steps:
+//    f000000000ygrxZFhP0LRXtBCJndibHje0AIaYTQ0ukDGMKVlvp0zcN00fwWUsEomOq00S
 // Hard:
