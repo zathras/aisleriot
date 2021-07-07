@@ -328,7 +328,7 @@ class _ChildCalculator {
   }
 
   void moveTo(_SlotStack src, List<_FreecellGenericSlot> slots,
-      {bool justOne = false, bool goDeeper = true}) {
+      {bool justOne = false, bool openedField = false}) {
     final SearchSlotData initial = scratch.slotData;
     for (final dest in slots) {
       if (dest != src.slot && dest.movableTo(src, scratch)) {
@@ -343,18 +343,22 @@ class _ChildCalculator {
         scratch.canonicalize();
         child.goodness = scratch._calculateGoodness();
         final more = accepted(child);
-        if (more && goDeeper && srcTop != null) {
-          // src must be a field slot, so we explore further up that slot.
-          _FieldSlot? newSrc;
-          for (final s in scratch.field) {
-            if (s.top == srcTop) {
-              newSrc = s;
-              break;
+        if (more) {
+          if (openedField) {
+            tryFromFreecells();
+          } else if (srcTop != null) {
+            // src must be a field slot, so we explore further up that slot.
+            _FieldSlot? newSrc;
+            for (final s in scratch.field) {
+              if (s.top == srcTop) {
+                newSrc = s;
+                break;
+              }
             }
+            assert(newSrc != null);
+            tryFromField(newSrc!);
+            tryToField(newSrc);
           }
-          assert(newSrc != null);
-          tryFromField(newSrc!);
-          tryToField(newSrc);
         }
         scratch.slotData = initial;
         if (justOne) {
@@ -363,6 +367,16 @@ class _ChildCalculator {
       }
     }
   }
+
+  void tryFromFreecells() {
+    for (final s in scratch.freecell) {
+      if (s.isNotEmpty) {
+        final src = _SlotStack(s, 1, s.top);
+        moveTo(src, scratch.field, openedField: true);
+      }
+    }
+  }
+
   void tryFromField(_FieldSlot s) {
     int numCards = 1;
     for (final bottom in s.fromTop) {
@@ -383,7 +397,7 @@ class _ChildCalculator {
     for (final s in scratch.freecell) {
       if (s.isNotEmpty) {
         final src = _SlotStack(s, 1, s.top);
-        moveTo(src, destList, goDeeper: false);
+        moveTo(src, destList, openedField: true);
       }
     }
     for (final s in scratch.field) {
@@ -394,7 +408,7 @@ class _ChildCalculator {
           if (!s.canSelect(src, scratch)) {
             break;
           }
-          moveTo(src, destList, goDeeper: false);
+          moveTo(src, destList, openedField: true);
           numCards++;
         }
       }

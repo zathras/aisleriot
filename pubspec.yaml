@@ -17,6 +17,8 @@ dependencies:
   shared_preferences: ^2.0.5
   jovial_svg: ^1.0.5
   url_launcher: ^6.0.3
+  uni_links: ^0.5.1
+  uni_links_web: ^0.1.0
   # archive: ^3.1.2
   # tuple: ^2.0.0
 

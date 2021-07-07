@@ -336,7 +336,8 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
   final GameController<ST> controller;
   final Board<ST, ListSlotData> board;
   bool _stopped = false;
-  static final int maxArrangements = (ui.kIsWeb) ? 5000000 : 50000000;
+  int lastReportedArrangements = 0;
+  static final int maxArrangements = (ui.kIsWeb) ? 4000000 : 40000000;
   static final List<double> solveTimes = CircularBuffer(Float64List(200000));
   // @@ TODO:  Make smaller
 
@@ -375,6 +376,10 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
       if (_stopped) {
         return false;
       }
+      if (seen.length > lastReportedArrangements + (maxArrangements ~/ 40)) {
+        print("  ${seen.length} arrangements so far...");
+        lastReportedArrangements = seen.length;
+      }
       final k = q.removeFirst();
       scratch.slotData = k;
       if (sw.elapsedTicks > nextFrame) {
@@ -396,7 +401,7 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
         assert(!_stopped);
         stop();
         final solveTime = sw.elapsedTicks / sw.frequency;
-        if (solveTime >= 5) {
+        if (solveTime >= 10) {
           print('Solve time $solveTime for $external, '
               '$iterations iterations, ${seen.length} arrangements');
         }
@@ -716,7 +721,6 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
 //    f000000000rfVqgSIT0UsuMFDJ0Gl0t0diKv0n0X0mARNHkQpPceBaOowZxLEhbWCYyjz0
 // 10.8 seconds, 15911 iterations, 1.2M arrangements, 54 steps:
 //    f000000000pSIMWFDx0jbTrPZGKe00VHscglJLoqAm0w0UifOvdyYa0ChR0nBQXE0zNutk
-// Hard:
 // 30 seconds:
 //    f000000000fIjczdiNwLql0JGUaPHgB0OXSCFeTQE0DbWrxZkot0spMR0mKyVuv0Yn0h0A
 // 184 seconds:
@@ -731,3 +735,11 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
 //    f000000000DmvkgofTrR0Xhqn0YAjJwpdyH0VCFQl0uKPxEZc0UM0i0tze0WLOsSNaBbIG
 // Unsolved before tryToField, trivial after:
 //    f000000000JQleDUKsBXSrkvGt0oWZq0ngR0adCjHh0y0VPxm0zcwYTbALiFEM0ufON0pI
+// Hard before tryFromFreecells():
+//  1037 seconds, 5.2M iterations, 26M arrangements:
+//    f000000000LeBNqndsOx0mhlcD0wgAFu0yXJWCHrG0okYIif0KEpSPbMUR00zQvaZtjV0T
+//  401 seconds, 176K iterations, 15M arrangements:
+//    f000000000dBZwCQTHUEuSDqFnOAGYXa0stRJglevMop0chVi0Lf00Ijb00zkmrPWK0Nyx
+//  Unsolved (at 9338 wins) before tryFromFreecells(), trivial after:
+//    f000000000iIxGwyQfsaH0dWKJO0lbCXTnBA000PomqUFDhR0eMtLg0zpSk0rujcNZVYEv
+
