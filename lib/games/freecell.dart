@@ -25,6 +25,7 @@ import 'package:aisleriot/graphics.dart';
 
 import '../constants.dart';
 import '../game.dart';
+import '../settings.dart';
 
 abstract class _FreecellGenericSlot implements Slot {
   /// Is moving movable to us?
@@ -137,8 +138,7 @@ class FreecellBoard<SD extends SlotData>
   }
 
   @override
-  bool get gameWon =>
-      freecell.every((s) => s.isEmpty) && field.every((s) => s.isEmpty);
+  bool get gameWon => homecell.every((s) => s.isNotEmpty && s.top.value == 13);
 
   @override
   bool canSelect(_SlotStack s) => s.slot.canSelect(s, this);
@@ -328,7 +328,7 @@ class _ChildCalculator {
   }
 
   void moveTo(_SlotStack src, List<_FreecellGenericSlot> slots,
-      {bool justOne = false}) {
+      {bool justOne = false, bool goDeeper = true}) {
     final SearchSlotData initial = scratch.slotData;
     for (final dest in slots) {
       if (dest != src.slot && dest.movableTo(src, scratch)) {
@@ -343,7 +343,7 @@ class _ChildCalculator {
         scratch.canonicalize();
         child.goodness = scratch._calculateGoodness();
         final more = accepted(child);
-        if (more && srcTop != null) {
+        if (more && goDeeper && srcTop != null) {
           // src must be a field slot, so we explore further up that slot.
           _FieldSlot? newSrc;
           for (final s in scratch.field) {
@@ -354,6 +354,7 @@ class _ChildCalculator {
           }
           assert(newSrc != null);
           tryFromField(newSrc!);
+          tryToField(newSrc);
         }
         scratch.slotData = initial;
         if (justOne) {
@@ -362,7 +363,6 @@ class _ChildCalculator {
       }
     }
   }
-
   void tryFromField(_FieldSlot s) {
     int numCards = 1;
     for (final bottom in s.fromTop) {
@@ -376,15 +376,39 @@ class _ChildCalculator {
       numCards++;
     }
   }
+
+  /// Try moving cards to a (newly) open spot on slot s
+  void tryToField(_FieldSlot dest) {
+    final destList = [dest];
+    for (final s in scratch.freecell) {
+      if (s.isNotEmpty) {
+        final src = _SlotStack(s, 1, s.top);
+        moveTo(src, destList, goDeeper: false);
+      }
+    }
+    for (final s in scratch.field) {
+      if (s != dest) {
+        int numCards = 1;
+        for (final bottom in s.fromTop) {
+          final src = _SlotStack(s, numCards, bottom);
+          if (!s.canSelect(src, scratch)) {
+            break;
+          }
+          moveTo(src, destList, goDeeper: false);
+          numCards++;
+        }
+      }
+    }
+  }
 }
 
 class Freecell extends Game<_FreecellGenericSlot> {
   @override
   final FreecellBoard<ListSlotData> board;
 
-  Freecell._p(this.board, List<SlotOrLayout> slots) : super(slots);
+  Freecell._p(this.board, List<SlotOrLayout> slots, Settings settings) : super(slots, settings);
 
-  factory Freecell() {
+  factory Freecell(Settings settings) {
     Deck d = Deck();
     final board = FreecellBoard(ListSlotData(16));
     int f = 0;
@@ -413,8 +437,11 @@ class Freecell extends Game<_FreecellGenericSlot> {
       allSlots.add(HorizontalSpaceSlot(1 / 24));
     }
     allSlots.add(CarriageReturnSlot(extraHeight: 0.2));
-    return Freecell._p(board, allSlots);
+    return Freecell._p(board, allSlots, settings);
   }
+
+  @override
+  String get id => 'freecell';
 
   @override
   List<_Move> doubleClick(_SlotStack s) {
@@ -438,7 +465,7 @@ class Freecell extends Game<_FreecellGenericSlot> {
   }
 
   @override
-  Freecell newGame() => Freecell();
+  Freecell newGame() => Freecell(settings);
 }
 
 // 2^exp

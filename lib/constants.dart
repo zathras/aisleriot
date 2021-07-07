@@ -17,7 +17,6 @@
  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 const bool NDEBUG = false;
 
 /// package_info doesn't exist for all platforms, so I'm doing it the old

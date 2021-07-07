@@ -28,6 +28,7 @@ import 'package:flutter/foundation.dart';
 
 import 'constants.dart';
 import 'controller.dart';
+import 'settings.dart';
 
 abstract class Board<ST extends Slot, SD extends SlotData> {
   SD slotData;
@@ -104,10 +105,12 @@ abstract class Board<ST extends Slot, SD extends SlotData> {
 
 abstract class Game<ST extends Slot> {
   final List<SlotOrLayout> slots;
+  final Settings settings;
   final _undoStack = List<UndoRecord<ST>>.empty(growable: true);
   int _undoPos = 0;
+  bool lost = false;
 
-  Game(List<SlotOrLayout> slots) : slots = List.unmodifiable(slots) {
+  Game(List<SlotOrLayout> slots, this.settings) : slots = List.unmodifiable(slots) {
     assert(slots.last is CarriageReturnSlot);
     for (final s in slots) {
       assert((!(s is Slot)) || (s is ST));
@@ -116,11 +119,17 @@ abstract class Game<ST extends Slot> {
 
   GameController<ST> makeController() => GameController<ST>(this);
 
+  /// Unique ID, for use in table of scores
+  String get id;
+
   Board<ST, ListSlotData> get board; // must be final in subclass
 
   List<Move<ST>> doubleClick(CardStack<ST> s);
 
   Game<ST> newGame();
+
+  bool get gameWon => board.gameWon;
+  bool get gameStarted => _undoStack.isNotEmpty || lost;
 
   void addUndo(UndoRecord<ST> u) {
     _undoStack.length = _undoPos++;
@@ -148,7 +157,7 @@ class UndoRecord<ST extends Slot> {
   final bool automatic;
   final String? debugComment;
 
-  UndoRecord(Move<ST> move, { this.debugComment })
+  UndoRecord(Move<ST> move, {this.debugComment})
       : src = move.src.slot,
         dest = move.dest,
         numCards = move.src.numCards,
@@ -463,8 +472,7 @@ class SearchCardList implements CardList {
   void moveStackTo(int numCards, covariant SearchCardList dest) {
     assert(NDEBUG || dest != this);
     assert(NDEBUG || numCards > 0);
-    assert(
-        NDEBUG || numCards <= this.numCards, '$numCards > ${this.numCards}');
+    assert(NDEBUG || numCards <= this.numCards, '$numCards > ${this.numCards}');
     int addr = _offset + 1; // Address of _top;
     int top = _raw[addr];
     for (int i = 0; i < numCards; i++) {
@@ -481,8 +489,8 @@ class SearchCardList implements CardList {
   }
 
   bool _listOK() {
-    assert(NDEBUG || numCards == fromTop.length,
-        '$numCards, ${fromTop.length}');
+    assert(
+        NDEBUG || numCards == fromTop.length, '$numCards, ${fromTop.length}');
     return true;
   }
 }
@@ -717,7 +725,11 @@ class Move<ST extends Slot> {
   final bool animate;
   final bool automatic;
 
-  Move({required this.src, required this.dest, required this.automatic, this.animate = true});
+  Move(
+      {required this.src,
+      required this.dest,
+      required this.automatic,
+      this.animate = true});
 
   ST get slot => src.slot;
 

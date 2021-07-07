@@ -154,7 +154,7 @@ class GamePainter {
   static final loadMessages = CircularBuffer(List.filled(5, ''));
 
   /// Paint times, in seconds
-  final paintTimes = CircularBuffer(Float64List(100));
+  static final paintTimes = CircularBuffer(Float64List(100));
 
   Board? currentSearch;
 
@@ -566,7 +566,8 @@ class _BoardLayout {
           lastCard = card;
           offset += delta;
           i++;
-        };
+        }
+        ;
       }
     });
   }

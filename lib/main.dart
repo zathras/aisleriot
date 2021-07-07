@@ -28,12 +28,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:jovial_svg/jovial_svg.dart';
 import 'package:pedantic/pedantic.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'controller.dart';
 import 'constants.dart';
 import 'games/freecell.dart';
+import 'settings.dart';
 
 void main() async {
   // Get there first.
@@ -44,45 +44,16 @@ void main() async {
   runApp(MainWindow(await Assets.getAssets(rootBundle, settings), settings));
 }
 
-class Settings {
-  String deckAsset = 'guyenne-classic.si';
-  bool cacheCardImages = true;
-  static Color foregroundColor = Colors.indigo.shade50;
+class GameStatistics {
+  int wins = 0;
+  int losses = 0;
 
-  static Future<Settings> read() async {
-    final storage = await SharedPreferences.getInstance();
-    String? js = storage.getString('settings');
-    final r = Settings();
-    if (js != null) {
-      try {
-        r.decodeJson(json.decode(js) as Map<String, dynamic>);
-      } catch (e) {
-        print(e);
-      }
-    }
-    return r;
-  }
+  Map<String, dynamic> toJson() =>
+      <String, dynamic>{'wins': wins, 'losses': losses};
 
-  Future<void> write() async {
-    final storage = await SharedPreferences.getInstance();
-    String js = json.encode(toJson());
-    await storage.setString('settings', js);
-  }
-
-  ///
-  /// Convert to a data structure that can be serialized as JSON.
-  ///
-  Map<String, dynamic> toJson() => <String, dynamic>{
-        'cacheCardImages': cacheCardImages,
-        'deckAsset': deckAsset
-      };
-
-  ///
-  /// Convert from a data structure that comes from JSON
-  ///
   void decodeJson(Map<String, dynamic> json) {
-    cacheCardImages = (json['cacheCardImages'] as bool?) ?? cacheCardImages;
-    deckAsset = (json['deckAsset'] as String?) ?? deckAsset;
+    wins = (json['wins'] as int?) ?? wins;
+    losses = (json['losses'] as int?) ?? losses;
   }
 }
 
@@ -152,23 +123,59 @@ class _MainWindowState extends State<MainWindow> {
   GamePainter? painter;
   Settings settings;
   bool _first = true;
-  final GameController controller = Freecell().makeController();
+  bool winOrLossRecorded = false;
+  final GameController controller;
+  GameStatistics stats = GameStatistics();
 
-  _MainWindowState(this.lastDeckSelected, this.settings);
+  _MainWindowState(this.lastDeckSelected, Settings settings) :
+  settings = settings,
+  controller = Freecell(settings).makeController();
 
   @override
   void initState() {
     super.initState();
     controller.gameChangeNotifier.addListener(_stateChanged);
+    stats = settings.statistics
+        .putIfAbsent(controller.game.id, () => GameStatistics());
   }
 
   @override
   void dispose() {
     controller.gameChangeNotifier.removeListener(_stateChanged);
+    _recordIfLoss();
     super.dispose();
   }
 
-  void _stateChanged() => setState(() {});
+  void _recordIfLoss() {
+    if (controller.game.gameStarted && !controller.game.gameWon) {
+      stats.losses++;
+      unawaited(settings.write());
+    }
+  }
+
+  void _stateChanged() {
+    setState(() {
+      final won = controller.game.gameWon;
+      final wonOrLost = controller.game.gameWon || controller.game.lost;
+      if (wonOrLost != winOrLossRecorded) {
+        if (won) {
+          stats.wins++;
+        } else if (controller.game.lost) {
+          stats.losses++;
+        } else {
+          stats.wins--;
+        }
+        winOrLossRecorded = won;
+        unawaited(settings.write());
+      }
+    });
+  }
+
+  void newGame() {
+    _recordIfLoss();
+    winOrLossRecorded = false;
+    controller.newGame(); // Calls _stateChanged()
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -266,14 +273,14 @@ class _MainWindowState extends State<MainWindow> {
             PopupMenuItem(
                 enabled: true,
                 value: () {
-                  controller.newGame();
+                  newGame();
                 },
                 child: Text('New Game')),
             PopupMenuItem(value: () {}, child: _settingsMenu(context)),
             PopupMenuItem(
                 value: () {},
                 child:
-                    _HelpMenu('Help', widget.assets.icon, painter?.paintTimes))
+                    _HelpMenu('Help', widget.assets.icon))
           ];
         },
       );
@@ -347,9 +354,31 @@ class _MainWindowState extends State<MainWindow> {
               value: () => _changeCacheCardImages(context),
               child: const Text('Cache Card Images')),
           CheckedPopupMenuItem(
-              checked: true,
-              value: () => null,
+              checked: settings.automaticPlay,
+              value: () {
+                settings.automaticPlay = !settings.automaticPlay;
+                if (settings.automaticPlay) {
+                  controller.solve(onNewGame: () => winOrLossRecorded = false);
+                } else {
+                  controller.stopSolve();
+                }
+                Navigator.pop(context);
+              },
               child: const Text('Automatic Play')),
+          PopupMenuItem(
+              value: () {
+                setState(() {
+                  stats.wins = stats.losses = 0;
+                  unawaited(settings.write());
+                });
+                Navigator.pop(context);
+              },
+              child: Row(children: [
+                SizedBox(width: 15),
+                Icon(Icons.reset_tv),
+                SizedBox(width: 28),
+                Text('Reset Score')
+              ])),
         ],
         child: Row(
           children: [
@@ -436,7 +465,7 @@ class ButtonArea extends StatelessWidget {
                                     padding: EdgeInsets.fromLTRB(0, 0, 8, 0),
                                     child: ElevatedButton(
                                       onPressed: () {
-                                        state.controller.newGame();
+                                        state.newGame();
                                       },
                                       child: Text(
                                         'New Game',
@@ -446,10 +475,11 @@ class ButtonArea extends StatelessWidget {
                           ]
                         : []),
                     Text(' Wins:', style: _style, textAlign: TextAlign.left),
-                    Text('   99999', style: _style, textAlign: TextAlign.left),
+                    Text('   ${state.stats.wins}',
+                        style: _style, textAlign: TextAlign.left),
                     Text(' ', style: _style),
                     Text(' Losses:', style: _style),
-                    Text('   0', style: _style),
+                    Text('   ${state.stats.losses}', style: _style),
                     ...(h > 385
                         ? [
                             SizedBox(height: 35),
@@ -506,7 +536,7 @@ class ButtonArea extends StatelessWidget {
                 ? [
                     ElevatedButton(
                         onPressed: () {
-                          state.controller.newGame();
+                          state.newGame();
                         },
                         child: Text(
                           'New Game',
@@ -517,7 +547,10 @@ class ButtonArea extends StatelessWidget {
             SizedBox(
               width: 250,
               child: Center(
-                  child: Text('Wins:  99999   Losses: 0', style: _style)),
+                  child: Text(
+                      'Wins:  ${state.stats.wins}   '
+                      'Losses: ${state.stats.losses}',
+                      style: _style)),
             ),
             Spacer(),
             ...(w > 510
@@ -568,9 +601,8 @@ class ButtonArea extends StatelessWidget {
 class _HelpMenu extends StatelessWidget {
   final String title;
   final ScalableImage icon;
-  final List<double>? paintTimes;
 
-  _HelpMenu(this.title, this.icon, this.paintTimes);
+  _HelpMenu(this.title, this.icon);
 
   @override
   Widget build(BuildContext context) {
@@ -599,7 +631,7 @@ class _HelpMenu extends StatelessWidget {
               Navigator.pop<void>(context, () {});
               unawaited(showDialog(
                   context: context,
-                  builder: (c) => _showPerformance(c, paintTimes)));
+                  builder: (c) => _showPerformance(c)));
             },
             child: Text('Performance Stats')),
         PopupMenuItem(
@@ -648,58 +680,18 @@ Widget _showNonWarranty(BuildContext context) => AlertDialog(
               child: Text('OK'))
         ]);
 
-Widget _showPerformance(BuildContext context, List<double>? paintTimes) {
+Widget _showPerformance(BuildContext context) {
   final String histogram;
-  if (paintTimes == null || paintTimes.isEmpty) {
-    histogram = '';
-  } else {
-    paintTimes.sort();
-    double smallestMS = double.infinity;
-    double largestMS = double.negativeInfinity;
-    for (double v in paintTimes) {
-      v *= 1000; // ms
-      smallestMS = min(smallestMS, v);
-      largestMS = max(largestMS, v);
-    }
-    final int digits;
-    if (smallestMS.roundToDouble() >= 10) {
-      digits = 0;
-    } else if ((smallestMS * 10).roundToDouble() >= 10) {
-      digits = 1;
-    } else {
-      digits = 2;
-    }
-    if (smallestMS == largestMS) {
-      histogram = smallestMS.toStringAsFixed(digits) + ' ms:  X';
-    } else {
-      int len = 0;
-      final counts = Int32List(20);
-      final double delta = (largestMS - smallestMS) / counts.length;
-      String format(int i) => (smallestMS + i * delta).toStringAsFixed(digits);
-      for (int i = 0; i <= counts.length; i++) {
-        len = max(len, format(i).length);
-      }
-      for (double v in paintTimes) {
-        v *= 1000; // ms
-        int bin = ((v - smallestMS) / delta).floor();
-        bin = min(bin, counts.length - 1);
-        counts[bin]++;
-      }
-      final sb = StringBuffer();
-      sb.write('  PAINT TIMES\n');
-      sb.write('  ===========\n');
-      for (int i = 0; i < counts.length; i++) {
-        sb.write(format(i).padLeft(len));
-        sb.write(' - ');
-        sb.write(format(i + 1).padLeft(len));
-        sb.write(' ms: ');
-        sb.write(''.padLeft(counts[i], 'X'));
-        sb.write('\n');
-      }
-      histogram = sb.toString();
-    }
-  }
+  final sb = StringBuffer();
+  sb.write('  SOLVE TIMES\n');
+  sb.write('  ===========\n');
+  _writeHistogram(sb, SolutionSearcher.solveTimes);
+  sb.write('\n\n');
+  sb.write('  PAINT TIMES\n');
+  sb.write('  ===========\n');
+  _writeHistogram(sb, GamePainter.paintTimes);
 
+  histogram = sb.toString();
   return AlertDialog(
       title: Text('Performance Information'),
       content: Column(children: [
@@ -707,7 +699,10 @@ Widget _showPerformance(BuildContext context, List<double>? paintTimes) {
             .fold(StringBuffer(),
                 (StringBuffer buf, el) => buf..write(el)..write('\n'))
             .toString()),
-        Text(histogram, style: const TextStyle(fontFamily: 'Courier New'))
+        Expanded(child: SingleChildScrollView(child:
+        Text(histogram, style: const TextStyle(fontFamily: 'Courier New')
+        ))
+        )
       ]),
       actions: [
         TextButton(
@@ -716,6 +711,58 @@ Widget _showPerformance(BuildContext context, List<double>? paintTimes) {
             },
             child: Text('OK'))
       ]);
+}
+
+void _writeHistogram(StringBuffer sb, List<double> times) {
+  if (times.isEmpty) {
+    return;
+  }
+  times.sort();
+  double smallestMS = double.infinity;
+  double largestMS = double.negativeInfinity;
+  double total = 0;
+  for (double v in times) {
+    v *= 1000; // ms
+    smallestMS = min(smallestMS, v);
+    largestMS = max(largestMS, v);
+    total += v;
+  }
+  final int digits;
+  if (smallestMS.roundToDouble() >= 10) {
+    digits = 0;
+  } else if ((smallestMS * 10).roundToDouble() >= 10) {
+    digits = 1;
+  } else {
+    digits = 2;
+  }
+  if (smallestMS == largestMS) {
+    sb.write(smallestMS.toStringAsFixed(digits));
+    sb.write(' ms:  X');
+  } else {
+    int len = 0;
+    final counts = Int32List(50);   // @@ TODO Make 20
+    final double delta = (largestMS - smallestMS) / counts.length;
+    String format(int i) => (smallestMS + i * delta).toStringAsFixed(digits);
+    for (int i = 0; i <= counts.length; i++) {
+      len = max(len, format(i).length);
+    }
+    for (double v in times) {
+      v *= 1000; // ms
+      int bin = ((v - smallestMS) / delta).floor();
+      bin = min(bin, counts.length - 1);
+      counts[bin]++;
+    }
+    for (int i = 0; i < counts.length; i++) {
+      sb.write(format(i).padLeft(len));
+      sb.write(' - ');
+      sb.write(format(i + 1).padLeft(len));
+      sb.write(' ms: ');
+      sb.write(''.padLeft(counts[i], 'X'));
+      sb.write('\n');
+    }
+  }
+  sb.write('    Mean value:  ${total / times.length} ms.\n');
+  sb.write('    Median value:  ${times[times.length~/2]*1000} ms.\n');
 }
 
 class GameWidget extends StatefulWidget {
