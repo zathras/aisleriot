@@ -358,6 +358,17 @@ class _ChildCalculator {
             assert(newSrc != null);
             tryFromField(newSrc!);
             tryToField(newSrc);
+          } else if (src.slot is _FieldSlot) {
+            // We just opened up a field slot
+            _FieldSlot? newSrc;
+            for (final s in scratch.field) {
+              if (s.isEmpty) {
+                newSrc = s;
+                break;
+              }
+            }
+            assert(newSrc != null);
+            tryToField(newSrc!);
           }
         }
         scratch.slotData = initial;

@@ -351,6 +351,7 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
     controller.painter.currentSearch = null;
   }
 
+  /// Returns true if we exit for an OK reason, false if we fail.
   Future<bool> solve() async {
     final scratch = board.makeSearchBoard();
     controller.painter.currentSearch = scratch;
@@ -374,7 +375,7 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
     int iterations = 0;
     while (q.isNotEmpty && seen.length < maxArrangements) {
       if (_stopped) {
-        return false;
+        return true;
       }
       if (seen.length > lastReportedArrangements + (maxArrangements ~/ 40)) {
         print("  ${seen.length} arrangements so far...");
@@ -398,7 +399,6 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
         });
         final solution = Solution(path, scratch);
         assert(next == null);
-        assert(!_stopped);
         stop();
         final solveTime = sw.elapsedTicks / sw.frequency;
         if (solveTime >= 10) {
@@ -598,7 +598,7 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
   ui.Offset movePos = ui.Offset.zero;
   ui.Offset moveDest = ui.Offset.zero;
 
-  static const double speed = 150; // card widths/second
+  static const double speed = 1500; // card widths/second  // @@ TODO 150
 
   _GameAnimation(this.controller, this.moves, this.onFinished,
       {this.isUndo = false}) {
