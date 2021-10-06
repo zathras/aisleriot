@@ -328,7 +328,7 @@ class _ChildCalculator {
   }
 
   void moveTo(_SlotStack src, List<_FreecellGenericSlot> slots,
-      {bool justOne = false, bool openedField = false}) {
+      {bool justOne = false, int openedFieldMinValue = -1}) {
     final SearchSlotData initial = scratch.slotData;
     for (final dest in slots) {
       if (dest != src.slot && dest.movableTo(src, scratch)) {
@@ -344,8 +344,8 @@ class _ChildCalculator {
         child.goodness = scratch._calculateGoodness();
         final more = accepted(child);
         if (more) {
-          if (openedField) {
-            tryFromFreecells();
+          if (openedFieldMinValue > -1) {
+            tryFromFreecells(openedFieldMinValue);
           } else if (srcTop != null) {
             // src must be a field slot, so we explore further up that slot.
             _FieldSlot? newSrc;
@@ -357,7 +357,7 @@ class _ChildCalculator {
             }
             assert(newSrc != null);
             tryFromField(newSrc!);
-            tryToField(newSrc);
+            tryToField(newSrc, 0);
           } else if (src.slot is _FieldSlot) {
             // We just opened up a field slot
             _FieldSlot? newSrc;
@@ -368,7 +368,7 @@ class _ChildCalculator {
               }
             }
             assert(newSrc != null);
-            tryToField(newSrc!);
+            tryToField(newSrc!, src.bottom.value + 1);
           }
         }
         scratch.slotData = initial;
@@ -379,11 +379,11 @@ class _ChildCalculator {
     }
   }
 
-  void tryFromFreecells() {
+  void tryFromFreecells(int openedFieldMinValue) {
     for (final s in scratch.freecell) {
-      if (s.isNotEmpty) {
+      if (s.isNotEmpty && s.top.value >= openedFieldMinValue) {
         final src = _SlotStack(s, 1, s.top);
-        moveTo(src, scratch.field, openedField: true);
+        moveTo(src, scratch.field, openedFieldMinValue: 0);
       }
     }
   }
@@ -402,13 +402,13 @@ class _ChildCalculator {
     }
   }
 
-  /// Try moving cards to a (newly) open spot on slot s
-  void tryToField(_FieldSlot dest) {
+  /// Try moving cards to a (newly) open spot on slot dest
+  void tryToField(_FieldSlot dest, int minValue) {
     final destList = [dest];
     for (final s in scratch.freecell) {
       if (s.isNotEmpty) {
         final src = _SlotStack(s, 1, s.top);
-        moveTo(src, destList, openedField: true);
+        moveTo(src, destList, openedFieldMinValue: minValue);
       }
     }
     for (final s in scratch.field) {
@@ -419,7 +419,7 @@ class _ChildCalculator {
           if (!s.canSelect(src, scratch)) {
             break;
           }
-          moveTo(src, destList, openedField: true);
+          moveTo(src, destList, openedFieldMinValue: minValue);
           numCards++;
         }
       }
@@ -431,7 +431,8 @@ class Freecell extends Game<_FreecellGenericSlot> {
   @override
   final FreecellBoard<ListSlotData> board;
 
-  Freecell._p(this.board, List<SlotOrLayout> slots, Settings settings) : super(slots, settings);
+  Freecell._p(this.board, List<SlotOrLayout> slots, Settings settings)
+      : super(slots, settings);
 
   factory Freecell(Settings settings) {
     Deck d = Deck();

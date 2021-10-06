@@ -41,7 +41,35 @@ void main() async {
 
   WidgetsFlutterBinding.ensureInitialized();
   final settings = await Settings.read();
-  runApp(MainWindow(await Assets.getAssets(rootBundle, settings), settings));
+  runApp(TopWindow(await Assets.getAssets(rootBundle, settings), settings));
+}
+
+/// Dumb top window so that we can do a MediaQuery.of on MainWindow
+class TopWindow extends StatelessWidget {
+  final Assets assets;
+  final Settings initialSettings;
+
+  const TopWindow(this.assets, this.initialSettings, {Key? key})
+      : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+        title: 'Jovial Aisleriot',
+        theme: Theme.of(context).copyWith(
+          elevatedButtonTheme: ElevatedButtonThemeData(
+              style: ElevatedButton.styleFrom(
+            primary: Colors.indigo.shade400,
+            onSurface: Colors.white,
+          )),
+        ),
+        home: Material(
+            // The Material widget is needed for text widgets to work:
+            // https://stackoverflow.com/questions/47114639/yellow-lines-under-text-widgets-in-flutter
+            type: MaterialType.transparency,
+            child: Builder(
+              builder: (BuildContext context) => MainWindow(assets, initialSettings))));
+  }
 }
 
 class GameStatistics {
@@ -102,9 +130,10 @@ class Deck {
 
   Deck(this.deckName, this.assetKey);
 
-  Future<GamePainter> makePainter(AssetBundle b,
+  Future<GamePainter> makePainter(AssetBundle b, double devicePixelRatio,
           {required bool cacheCards}) async =>
-      GamePainter.create(b, 'assets/cards/$assetKey', cacheCards: cacheCards);
+      GamePainter.create(b, 'assets/cards/$assetKey', devicePixelRatio,
+          cacheCards: cacheCards);
 }
 
 class MainWindow extends StatefulWidget {
@@ -127,9 +156,9 @@ class _MainWindowState extends State<MainWindow> {
   final GameController controller;
   GameStatistics stats = GameStatistics();
 
-  _MainWindowState(this.lastDeckSelected, Settings settings) :
-  settings = settings,
-  controller = Freecell(settings).makeController();
+  _MainWindowState(this.lastDeckSelected, Settings settings)
+      : settings = settings,
+        controller = Freecell(settings).makeController();
 
   @override
   void initState() {
@@ -165,7 +194,7 @@ class _MainWindowState extends State<MainWindow> {
         } else {
           stats.wins--;
         }
-        winOrLossRecorded = won;
+        winOrLossRecorded = wonOrLost;
         unawaited(settings.write());
       }
     });
@@ -181,37 +210,25 @@ class _MainWindowState extends State<MainWindow> {
   Widget build(BuildContext context) {
     if (_first) {
       _first = false;
+      double devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
       unawaited(() async {
         final cc = settings.cacheCardImages;
         await Future<void>.delayed(Duration(milliseconds: 40));
-        GamePainter p = await lastDeckSelected.makePainter(widget.assets.bundle,
+        GamePainter p = await lastDeckSelected.makePainter(
+            widget.assets.bundle, devicePixelRatio,
             cacheCards: cc);
         if (settings.cacheCardImages != cc) {
           final p2 = p.withNewCacheCards(settings.cacheCardImages);
           p.dispose();
           p = p2;
         }
-        ;
         setState(() {
           painter = p;
         });
       }());
     }
     final p = painter;
-    return MaterialApp(
-        title: 'Jovial Aisleriot',
-        theme: Theme.of(context).copyWith(
-          elevatedButtonTheme: ElevatedButtonThemeData(
-              style: ElevatedButton.styleFrom(
-            primary: Colors.indigo.shade400,
-            onSurface: Colors.white,
-          )),
-        ),
-        home: Material(
-            // The Material widget is needed for text widgets to work:
-            // https://stackoverflow.com/questions/47114639/yellow-lines-under-text-widgets-in-flutter
-            type: MaterialType.transparency,
-            child: LayoutBuilder(builder: (context, BoxConstraints bc) {
+    return LayoutBuilder(builder: (context, BoxConstraints bc) {
               final short = bc.hasBoundedHeight &&
                   bc.hasBoundedWidth &&
                   bc.maxHeight * 1.5 < bc.maxWidth;
@@ -219,7 +236,7 @@ class _MainWindowState extends State<MainWindow> {
                 children: [
                   Padding(
                     padding: short
-                        ? const EdgeInsets.fromLTRB(120, 0, 0, 0)
+                        ? const EdgeInsets.fromLTRB(130, 0, 0, 0)
                         : const EdgeInsets.fromLTRB(0, 60, 0, 0),
                     child: (p != null)
                         ? GameWidget(widget.assets, controller, p)
@@ -229,7 +246,7 @@ class _MainWindowState extends State<MainWindow> {
                   ),
                   short
                       ? ButtonArea(
-                          state: this, width: 120, maxHeight: bc.maxHeight)
+                          state: this, width: 130, maxHeight: bc.maxHeight)
                       : ButtonArea(
                           state: this, height: 60, maxWidth: bc.maxWidth),
                   Align(
@@ -245,7 +262,7 @@ class _MainWindowState extends State<MainWindow> {
                               si: widget.assets.icon, scale: 0.08))),
                 ],
               );
-            })));
+            });
   }
 
   Widget _buildMenu(BuildContext context) => PopupMenuButton(
@@ -278,9 +295,7 @@ class _MainWindowState extends State<MainWindow> {
                 child: Text('New Game')),
             PopupMenuItem(value: () {}, child: _settingsMenu(context)),
             PopupMenuItem(
-                value: () {},
-                child:
-                    _HelpMenu('Help', widget.assets.icon))
+                value: () {}, child: _HelpMenu('Help', widget.assets.icon))
           ];
         },
       );
@@ -403,13 +418,15 @@ class _MainWindowState extends State<MainWindow> {
       setState(() {
         lastDeckSelected = newDeck;
         settings.deckAsset = newDeck.assetKey;
+        double devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
         unawaited(() async {
           await settings.write();
           // A slight delay so Flutter has a chance to at least start
           // dismissing the dropdown on slow platforms.  I miss having
           // thread priorities :-)
           await Future<void>.delayed(Duration(milliseconds: 50));
-          final p = await newDeck.makePainter(widget.assets.bundle,
+          final p = await newDeck.makePainter(
+              widget.assets.bundle, devicePixelRatio,
               cacheCards: settings.cacheCardImages);
           setState(() {
             painter = p;
@@ -457,7 +474,7 @@ class ButtonArea extends StatelessWidget {
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    ...(h > 270
+                    ...(h > 370
                         ? [
                             SizedBox(height: 45),
                             Center(
@@ -474,15 +491,12 @@ class ButtonArea extends StatelessWidget {
                             SizedBox(height: 45),
                           ]
                         : []),
-                    Text(' Wins:', style: _style, textAlign: TextAlign.left),
-                    Text('   ${state.stats.wins}',
-                        style: _style, textAlign: TextAlign.left),
+                    Text(' W:  ${state.stats.wins}', style: _style, textAlign: TextAlign.left),
                     Text(' ', style: _style),
-                    Text(' Losses:', style: _style),
-                    Text('   ${state.stats.losses}', style: _style),
-                    ...(h > 385
+                    Text(' L:   ${state.stats.losses}', style: _style),
+                    ...(h > 400
                         ? [
-                            SizedBox(height: 35),
+                            SizedBox(height: 30),
                             Row(children: [
                               Padding(
                                   padding: EdgeInsets.fromLTRB(5, 0, 0, 0),
@@ -513,7 +527,7 @@ class ButtonArea extends StatelessWidget {
                             Padding(
                                 padding: EdgeInsets.fromLTRB(15, 0, 0, 0),
                                 child: SizedBox(
-                                    width: 70,
+                                    width: 80,
                                     child: ElevatedButton(
                                         onPressed: () =>
                                             state.controller.solve(),
@@ -630,8 +644,7 @@ class _HelpMenu extends StatelessWidget {
             value: () {
               Navigator.pop<void>(context, () {});
               unawaited(showDialog(
-                  context: context,
-                  builder: (c) => _showPerformance(c)));
+                  context: context, builder: (c) => _showPerformance(c)));
             },
             child: Text('Performance Stats')),
         PopupMenuItem(
@@ -699,10 +712,10 @@ Widget _showPerformance(BuildContext context) {
             .fold(StringBuffer(),
                 (StringBuffer buf, el) => buf..write(el)..write('\n'))
             .toString()),
-        Expanded(child: SingleChildScrollView(child:
-        Text(histogram, style: const TextStyle(fontFamily: 'Courier New')
-        ))
-        )
+        Expanded(
+            child: SingleChildScrollView(
+                child: Text(histogram,
+                    style: const TextStyle(fontFamily: 'Courier New'))))
       ]),
       actions: [
         TextButton(
@@ -740,7 +753,7 @@ void _writeHistogram(StringBuffer sb, List<double> times) {
     sb.write(' ms:  X');
   } else {
     int len = 0;
-    final counts = Int32List(50);   // @@ TODO Make 20
+    final counts = Int32List(50); // @@ TODO Make 20
     final double delta = (largestMS - smallestMS) / counts.length;
     String format(int i) => (smallestMS + i * delta).toStringAsFixed(digits);
     for (int i = 0; i <= counts.length; i++) {
@@ -762,7 +775,7 @@ void _writeHistogram(StringBuffer sb, List<double> times) {
     }
   }
   sb.write('    Mean value:  ${total / times.length} ms.\n');
-  sb.write('    Median value:  ${times[times.length~/2]*1000} ms.\n');
+  sb.write('    Median value:  ${times[times.length ~/ 2] * 1000} ms.\n');
 }
 
 class GameWidget extends StatefulWidget {

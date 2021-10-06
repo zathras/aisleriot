@@ -110,7 +110,8 @@ abstract class Game<ST extends Slot> {
   int _undoPos = 0;
   bool lost = false;
 
-  Game(List<SlotOrLayout> slots, this.settings) : slots = List.unmodifiable(slots) {
+  Game(List<SlotOrLayout> slots, this.settings)
+      : slots = List.unmodifiable(slots) {
     assert(slots.last is CarriageReturnSlot);
     for (final s in slots) {
       assert((!(s is Slot)) || (s is ST));
@@ -157,11 +158,12 @@ class UndoRecord<ST extends Slot> {
   final bool automatic;
   final String? debugComment;
 
-  UndoRecord(Move<ST> move, {this.debugComment})
+  UndoRecord(Move<ST> move)
       : src = move.src.slot,
         dest = move.dest,
         numCards = move.src.numCards,
-        automatic = move.automatic;
+        automatic = move.automatic,
+        debugComment = move.debugComment;
 
   void printComment() {
     if (debugComment != null) {
@@ -289,7 +291,7 @@ class BigCardList extends CardList {
 
 class SearchSlotData extends SlotData {
   double goodness = -1;
-  double timeCreated = 0;
+  double timeUsed;
   final Uint8List _raw;
 
   @override
@@ -303,6 +305,7 @@ class SearchSlotData extends SlotData {
   SearchSlotData(
       {required int numSlots, required this.depth, required this.from})
       : _raw = _makeRaw(numSlots),
+        timeUsed = 0,
         super(numSlots) {
     assert(NDEBUG ||
         () {
@@ -322,6 +325,7 @@ class SearchSlotData extends SlotData {
       : _raw = Uint8List.fromList(other._raw),
         from = other,
         depth = depth,
+        timeUsed = other.timeUsed,
         super(other.numSlots);
 
   static const _numCards = 52;
@@ -724,6 +728,7 @@ class Move<ST extends Slot> {
   final ST dest;
   final bool animate;
   final bool automatic;
+  String? debugComment;
 
   Move(
       {required this.src,

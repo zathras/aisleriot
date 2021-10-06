@@ -144,6 +144,7 @@ class _GamePainterCards {
 }
 
 class GamePainter {
+  final double devicePixelRatio;
   final _GamePainterCards _cards;
   // _cards[card.suit.value][card.value-1]
   final _BoardLayout layout;
@@ -158,16 +159,19 @@ class GamePainter {
 
   Board? currentSearch;
 
-  GamePainter._p(_GamePainterCards cards, {required bool cacheCards})
+  GamePainter._p(_GamePainterCards cards, this.devicePixelRatio,
+      {required bool cacheCards})
       : _cards = cards,
         layout = _BoardLayout(cards.im.first.first.viewport),
-        _cardPainter = cacheCards ? _CachingCardPainter() : _CardPainter();
+        _cardPainter =
+            cacheCards ? _CachingCardPainter(devicePixelRatio) : _CardPainter();
 
   ///
   /// Create a GamePainter that is prepared.  Callee is responsible for
   /// calling [dispose] when finished with this painter.
   ///
-  static Future<GamePainter> create(ui.AssetBundle b, String assetKey,
+  static Future<GamePainter> create(
+      ui.AssetBundle b, String assetKey, double devicePixelRatio,
       {required bool cacheCards}) async {
     final data = await b.load(assetKey);
     final dataL =
@@ -194,7 +198,8 @@ class GamePainter {
         await c.prepareImages();
       }
     }
-    return GamePainter._p(_GamePainterCards(cards), cacheCards: cacheCards);
+    return GamePainter._p(_GamePainterCards(cards), devicePixelRatio,
+        cacheCards: cacheCards);
   }
 
   ///
@@ -203,7 +208,7 @@ class GamePainter {
   /// calling `dispose` on this GamePainter and, eventually, the new one.
   ///
   GamePainter withNewCacheCards(bool v) {
-    final r = GamePainter._p(_cards, cacheCards: v);
+    final r = GamePainter._p(_cards, devicePixelRatio, cacheCards: v);
     _cards.references++;
     return r;
   }
@@ -304,10 +309,13 @@ class _CardPainter {
 }
 
 class _CachingCardPainter extends _CardPainter {
+  final double devicePixelRatio;
   final _cards = List<_CardCacheEntry>.generate(52, (_) => _CardCacheEntry());
   double _width = -1;
   double _height = -1;
   bool _first = true;
+
+  _CachingCardPainter(this.devicePixelRatio);
 
   @override
   void paint(ui.Canvas c, double dx, double dy, ui.Rect space, Card card,
@@ -334,15 +342,20 @@ class _CachingCardPainter extends _CardPainter {
     final cachedImage = entry.image;
     if (cachedImage != null) {
       final p = ui.Paint();
-      c.drawImage(cachedImage, ui.Offset(space.left + dx, space.top + dy), p);
+      c.save();
+      c.scale(1/devicePixelRatio);
+      c.drawImage(cachedImage, ui.Offset(devicePixelRatio * (space.left + dx), devicePixelRatio * (space.top + dy)), p);
+      c.restore();
       entry.picture?.dispose();
       entry.picture = null;
       return;
     }
-    final picture = entry.picture ?? entry.start(space, im);
+    final picture = entry.picture ?? entry.start(space, im, devicePixelRatio);
+    c.save();
     c.translate(space.left + dx, space.top + dy);
+    c.scale(1/devicePixelRatio);
     c.drawPicture(picture);
-    c.translate(-space.left - dx, -space.top - dy);
+    c.restore();
     return;
   }
 
@@ -360,18 +373,18 @@ class _CardCacheEntry {
   ui.Picture? picture;
   bool disposed = false;
 
-  ui.Picture start(ui.Rect space, ScalableImage im) {
+  ui.Picture start(ui.Rect space, ScalableImage im, double devicePixelRatio) {
     final p = picture;
     if (p != null) {
       return p;
     }
     final rec = ui.PictureRecorder();
     final c = ui.Canvas(rec);
-    c.scale(space.width / im.viewport.width);
+    c.scale(devicePixelRatio * space.width / im.viewport.width);
     im.paint(c);
     final fp = picture = rec.endRecording();
     () async {
-      final im = await fp.toImage(space.width.ceil(), space.height.ceil());
+      final im = await fp.toImage((space.width * devicePixelRatio).ceil(), (space.height * devicePixelRatio).ceil());
       if (disposed) {
         im.dispose(); // Too late
       } else {

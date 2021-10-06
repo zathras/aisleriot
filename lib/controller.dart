@@ -22,6 +22,7 @@ import 'dart:collection';
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'dart:io' show Platform;
 
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart' as ui;
@@ -332,12 +333,22 @@ abstract class Solver<ST extends Slot> {
   void stop();
 }
 
+bool _isDesktop() {
+  if (ui.kIsWeb) {
+    return false;
+  } else if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
 class SolutionSearcher<ST extends Slot> extends Solver<ST> {
   final GameController<ST> controller;
   final Board<ST, ListSlotData> board;
   bool _stopped = false;
   int lastReportedArrangements = 0;
-  static final int maxArrangements = (ui.kIsWeb) ? 4000000 : 40000000;
+  static final int maxArrangements = (_isDesktop()) ? 4000000 : 40000000;
   static final List<double> solveTimes = CircularBuffer(Float64List(200000));
   // @@ TODO:  Make smaller
 
@@ -366,10 +377,12 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
     seen.add(scratch.slotData.raw);
     final sw = Stopwatch()..start();
     scratch.calculateChildren(scratch, (k) {
-      k.timeCreated = sw.elapsedTicks / sw.frequency;
-      seen.add(k.raw);
-      q.add(k);
-      return true;
+      if (seen.add(k.raw)) {
+        q.add(k);
+        return true;
+      } else {
+        return false;
+      }
     });
     double nextFrame = 0.25 * sw.frequency;
     int iterations = 0;
@@ -378,11 +391,11 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
         return true;
       }
       if (seen.length > lastReportedArrangements + (maxArrangements ~/ 40)) {
-        print("  ${seen.length} arrangements so far...");
         lastReportedArrangements = seen.length;
       }
       final k = q.removeFirst();
       scratch.slotData = k;
+      k.timeUsed = sw.elapsedTicks / sw.frequency;
       if (sw.elapsedTicks > nextFrame) {
         nextFrame += 0.25 * sw.frequency;
         controller.notifyListeners();
@@ -413,7 +426,6 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
       iterations++;
       scratch.calculateChildren(scratch, (final SearchSlotData kk) {
         if (seen.add(kk.raw)) {
-          kk.timeCreated = sw.elapsedTicks / sw.frequency;
           q.add(kk);
           return true;
         } else {
@@ -423,7 +435,7 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
     }
     final msg = q.isEmpty ? '@@ No solution.  ' : '@@ Gave up.  ';
     print('Failed to solve $external');
-    print('  $msg, $iterations iterations, ${seen.length} arrangements'
+    print('  $msg $iterations iterations, ${seen.length} arrangements'
         ' in ${sw.elapsed}.');
     sw.stop();
     solveTimes.add(sw.elapsedTicks / sw.frequency);
@@ -546,6 +558,7 @@ class Solution<ST extends Slot> extends Solver<ST> {
     final src = CardStack(srcSlot, step.viaNumCards, bottom);
     final dest = board.slotFromNumber(slotMap[step.viaSlotTo]);
     final move = Move(src: src, dest: dest, automatic: false);
+    move.debugComment = 'Used at ${step.timeUsed}';
     assert(NDEBUG || controller._inFlight == null);
     assert(NDEBUG || board.canSelect(src));
     assert(NDEBUG ||
@@ -742,4 +755,13 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
 //    f000000000dBZwCQTHUEuSDqFnOAGYXa0stRJglevMop0chVi0Lf00Ijb00zkmrPWK0Nyx
 //  Unsolved (at 9338 wins) before tryFromFreecells(), trivial after:
 //    f000000000iIxGwyQfsaH0dWKJO0lbCXTnBA000PomqUFDhR0eMtLg0zpSk0rujcNZVYEv
+//
+// Unsolvable:
+//    f000000000GtJmguzbRqvDZcW0VyCAx00Tw0KOfQBsLdYISiH0XMnjkeF0l0Ph0aroEpUN
 
+// Nearly solved:
+//    f00000PoB0000bcD0C0pqrFGuIJxLM00ndRSTUiWXlm00AQefghVjkYZ00NOEstHvwKyza
+
+// Hard in an interesting way:
+//    f0Dw0HaA00ctIpOvr00oqFL0UnhKgMNZ0QRfTXVW0lm00bd0SGB0jkY000CeEsPuiJxyz0
+//    f0Dw0HaA00crIpOv000oqFLtUnhKgMNZ0QRfTXVW0lm00bd0SGB0jkY000CeEsPuiJxyz0

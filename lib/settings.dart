@@ -25,10 +25,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'main.dart';
 
-
 class Settings {
   String deckAsset = 'guyenne-classic.si';
-  bool automaticPlay = false;   // Not saved
+  bool automaticPlay = false; // Not saved
   bool cacheCardImages = true;
   int wins = 0;
   int losses = 0;
@@ -59,10 +58,10 @@ class Settings {
   /// Convert to a data structure that can be serialized as JSON.
   ///
   Map<String, dynamic> toJson() => <String, dynamic>{
-    'cacheCardImages': cacheCardImages,
-    'deckAsset': deckAsset,
-    'statistics': statistics
-  };
+        'cacheCardImages': cacheCardImages,
+        'deckAsset': deckAsset,
+        'statistics': statistics
+      };
 
   ///
   /// Convert from a data structure that comes from JSON
