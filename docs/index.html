@@ -47,14 +47,14 @@ A few performance observations:
         written in Dart is good.  For example, the "Guyenne Classic" deck is
         a demanding 3 MB SVG.  With that deck, on the Samsung the time spent
         in a typical paint call is around 40 ms.  The overall animation
-        speed, on the other hand, makes the program unusable - I would guess
+        speed, on the other hand, made the program unusable - I would guess
         this is from the graphics rendering speed, which is intrinsic to the
-        platform and the asset.  Switching to a card deck with embedded images
-        makes the animation speed acceptable in the Android app, even on a 
-        slow device like this.
+        platform and the asset.  Caching rendered images for the SVG cards
+        fixed this, and made it fine on the tablet.
     <li>On a less horrible, but still pretty slow Galaxy Note 5, the
-        non-bitmapped Anglo deck is usable, but the bitmapped version is
-        noticable better.  Again, the bottleneck isn't in the dart code - 
+        non-bitmapped Anglo deck was usable without caching, but the cached
+        bitmapped version is
+        much better.  Again, the bottleneck isn't in the dart code - 
         time per frame spent in paint was around 20 ms, so the bottleneck
         lies elsewhere.
     <li>On the older devices, things like Flutter's built-in dropdown
