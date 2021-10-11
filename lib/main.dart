@@ -572,7 +572,7 @@ class ButtonArea extends StatelessWidget {
                     Padding(
                         padding: EdgeInsets.fromLTRB(0, 0, 0, 0),
                         child: SizedBox(
-                            width: 40,
+                            width: 55,
                             child: ElevatedButton(
                               onPressed: state.controller.game.canUndo
                                   ? () => state.controller.undo()
@@ -584,7 +584,7 @@ class ButtonArea extends StatelessWidget {
                     Padding(
                         padding: EdgeInsets.fromLTRB(15, 0, 0, 0),
                         child: SizedBox(
-                            width: 60,
+                            width: 80,
                             child: ElevatedButton(
                                 onPressed: () => state.controller.solve(),
                                 child: Text(r'¯\_(ツ)_/¯',
@@ -592,7 +592,7 @@ class ButtonArea extends StatelessWidget {
                     Padding(
                         padding: EdgeInsets.fromLTRB(15, 0, 0, 0),
                         child: SizedBox(
-                            width: 40,
+                            width: 55,
                             child: ElevatedButton(
                               onPressed: state.controller.game.canRedo
                                   ? () => state.controller.redo()

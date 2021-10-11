@@ -279,6 +279,10 @@ class GameController<ST extends Slot> extends ChangeNotifier {
         return;
       }
       final u = undoN!;
+      if (u.automatic && !onlyAutomatic) {
+        u.automatic = false;
+        // We manually asked for the redo, so it's not automatic anymore.
+      }
       u.printComment();
       final Card bottom = u.src.cardDownFromTop(u.numCards - 1);
       final cs = CardStack(u.src, u.numCards, bottom);
@@ -501,12 +505,17 @@ class Solution<ST extends Slot> extends Solver<ST> {
 
   Future<void> run(GameController<ST> controller) {
     assert(path.isEmpty || path[path.length - 1].from == null);
-    controller.doAutomaticMoves(() => _moveCompleted(controller));
+    if (controller.game.canUndo) {
+      // There can be no automatic moves
+      _moveCompleted(controller, false);
+    } else {
+      controller.doAutomaticMoves(() => _moveCompleted(controller, true));
+    }
     return waitForDone.future;
   }
 
   /// Now, both scratch and game are at one of the "s" states along the top.
-  void _moveCompleted(GameController<ST> controller) {
+  void _moveCompleted(GameController<ST> controller, bool auto) {
     int nextEmptySlot = 0;
     final board = controller.game.board;
     assert(NDEBUG ||
@@ -539,11 +548,11 @@ class Solution<ST extends Slot> extends Solver<ST> {
       slotMap[canonicalized] = i;
     }
     assert(NDEBUG || !slotMap.any((v) => v < 0));
-    _takeNextStep(controller);
+    _takeNextStep(controller, auto);
   }
 
   /// The first time through, scratch is at the state state s0, then s1, etc.
-  void _takeNextStep(GameController<ST> controller) {
+  void _takeNextStep(GameController<ST> controller, bool auto) {
     nextStep--;
     if (_stopped || nextStep < 0) {
       assert(_stopped || controller.game.gameWon);
@@ -557,15 +566,15 @@ class Solution<ST extends Slot> extends Solver<ST> {
     final Card bottom = srcSlot.cardDownFromTop(step.viaNumCards - 1);
     final src = CardStack(srcSlot, step.viaNumCards, bottom);
     final dest = board.slotFromNumber(slotMap[step.viaSlotTo]);
-    final move = Move(src: src, dest: dest, automatic: false);
-    move.debugComment = 'Used at ${step.timeUsed}';
+    final move = Move(src: src, dest: dest, automatic: auto);
+    // move.debugComment = 'Used at ${step.timeUsed}';
     assert(NDEBUG || controller._inFlight == null);
     assert(NDEBUG || board.canSelect(src));
     assert(NDEBUG ||
         board.canDrop(
             FoundCard(srcSlot, step.viaNumCards, bottom, ui.Rect.zero), dest));
     controller._inFlight = _GameAnimation<ST>(controller, [move],
-        () => controller.doAutomaticMoves(() => _moveCompleted(controller)));
+        () => controller.doAutomaticMoves(() => _moveCompleted(controller, true)));
   }
 }
 
@@ -611,7 +620,7 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
   ui.Offset movePos = ui.Offset.zero;
   ui.Offset moveDest = ui.Offset.zero;
 
-  static const double speed = 1500; // card widths/second  // @@ TODO 150
+  static const double speed = 150; // card widths/second
 
   _GameAnimation(this.controller, this.moves, this.onFinished,
       {this.isUndo = false}) {

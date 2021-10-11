@@ -142,7 +142,7 @@ abstract class Game<ST extends Slot> {
   UndoRecord<ST> takeUndo() => _undoStack[--_undoPos];
   UndoRecord<ST>? takeRedo({required bool onlyAutomatic}) {
     final u = _undoStack[_undoPos];
-    if (onlyAutomatic && !u.automatic) {
+    if (onlyAutomatic && board.automaticMoves().isEmpty) {
       return null;
     } else {
       _undoPos++;
@@ -155,7 +155,7 @@ class UndoRecord<ST extends Slot> {
   final ST src;
   final ST dest;
   final int numCards;
-  final bool automatic;
+  bool automatic;
   final String? debugComment;
 
   UndoRecord(Move<ST> move)
