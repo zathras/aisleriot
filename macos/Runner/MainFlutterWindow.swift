@@ -5,7 +5,7 @@ class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController.init()
     var windowFrame = self.frame
-    windowFrame.size = NSSize(width: 1024, height: 800)
+    windowFrame.size = NSSize(width: 1024, height: 1024)
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
 

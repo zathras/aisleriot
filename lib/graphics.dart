@@ -80,6 +80,10 @@ class CircularBuffer<T> extends ListMixin<T> {
     }
   }
 
+  ///
+  /// Add [element] to the buffer.  If the buffer was already at capacity,
+  /// remove the least recently added element.
+  ///
   @override
   void add(T element) {
     if (_last == -1) {
