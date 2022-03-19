@@ -22,6 +22,7 @@
 import 'dart:math';
 
 import 'package:aisleriot/graphics.dart';
+import 'package:flutter/foundation.dart';
 
 import '../constants.dart';
 import '../game.dart';
@@ -155,7 +156,7 @@ class FreecellBoard<SD extends SlotData>
   static bool fieldSequenceQ(_SlotStack cards) {
     Card? upper;
     int toGo = cards.numCards;
-    assert(NDEBUG || toGo > 0);
+    assert(disableDebug || toGo > 0);
     for (final card in cards.slot.fromTop) {
       final u = upper;
       if (u != null && !fieldJoinQ(card, u)) {
@@ -228,7 +229,7 @@ class FreecellBoard<SD extends SlotData>
   }
 
   @override
-  void debugPrintGoodness() => print('Goodness now ${_calculateGoodness()}');
+  void debugPrintGoodness() => debugPrint('Goodness now ${_calculateGoodness()}');
 
   double _calculateGoodness() {
     double weight = 0;
@@ -324,7 +325,7 @@ class _ChildCalculator {
     for (final s in scratch.field) {
       tryFromField(s);
     }
-    assert(NDEBUG || identical(scratch.slotData, initial));
+    assert(disableDebug || identical(scratch.slotData, initial));
   }
 
   void moveTo(_SlotStack src, List<_FreecellGenericSlot> slots,

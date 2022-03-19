@@ -26,7 +26,8 @@ import 'dart:io' show Platform;
 
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart' as ui;
-import 'package:pedantic/pedantic.dart';
+import 'package:flutter/foundation.dart';
+import 'package:jovial_misc/circular_buffer.dart';
 import 'package:quiver/collection.dart' as quiver;
 import 'package:quiver/core.dart' as quiver;
 
@@ -36,8 +37,7 @@ import 'game.dart';
 
 class ChangeNotifier extends ui.ChangeNotifier {
   // Make it public
-  @override
-  void notifyListeners() => super.notifyListeners();
+  void publicNotifyListeners() => notifyListeners();
 }
 
 ///
@@ -353,12 +353,10 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
   bool _stopped = false;
   int lastReportedArrangements = 0;
   static final int maxArrangements = (_isDesktop()) ? 4000000 : 40000000;
-  static final List<double> solveTimes = CircularBuffer(Float64List(200000));
-  // @@ TODO:  Make smaller
+  static final List<double> solveTimes = CircularBuffer(Float64List(20000));
 
-  SolutionSearcher(GameController<ST> controller)
-      : controller = controller,
-        board = controller.game.board;
+  SolutionSearcher(this.controller)
+      : board = controller.game.board;
 
   @override
   void stop() {
@@ -402,8 +400,8 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
       k.timeUsed = sw.elapsedTicks / sw.frequency;
       if (sw.elapsedTicks > nextFrame) {
         nextFrame += 0.25 * sw.frequency;
-        controller.notifyListeners();
-        await Future<void>.delayed(Duration(milliseconds: 2));
+        controller.publicNotifyListeners();
+        await Future<void>.delayed(const Duration(milliseconds: 2));
       }
       if (scratch.gameWon) {
         sw.stop();
@@ -419,7 +417,7 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
         stop();
         final solveTime = sw.elapsedTicks / sw.frequency;
         if (solveTime >= 10) {
-          print('Solve time $solveTime for $external, '
+          debugPrint('Solve time $solveTime for $external, '
               '$iterations iterations, ${seen.length} arrangements');
         }
         solveTimes.add(solveTime);
@@ -438,13 +436,13 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
       });
     }
     final msg = q.isEmpty ? '@@ No solution.  ' : '@@ Gave up.  ';
-    print('Failed to solve $external');
-    print('  $msg $iterations iterations, ${seen.length} arrangements'
+    debugPrint('Failed to solve $external');
+    debugPrint('  $msg $iterations iterations, ${seen.length} arrangements'
         ' in ${sw.elapsed}.');
     sw.stop();
     solveTimes.add(sw.elapsedTicks / sw.frequency);
     controller.stopSolve();
-    controller.notifyListeners();
+    controller.publicNotifyListeners();
     return false;
   }
 }
@@ -492,10 +490,8 @@ class Solution<ST extends Slot> extends Solver<ST> {
 
   final waitForDone = Completer<void>();
 
-  Solution(List<SearchSlotData> path, Board<ST, SearchSlotData> scratch)
-      : path = path,
-        nextStep = path.length - 1,
-        scratch = scratch,
+  Solution(this.path, this.scratch)
+      : nextStep = path.length - 1,
         slotMap = List<int>.generate(scratch.numSlots, (i) => i);
 
   @override
@@ -518,11 +514,11 @@ class Solution<ST extends Slot> extends Solver<ST> {
   void _moveCompleted(GameController<ST> controller, bool auto) {
     int nextEmptySlot = 0;
     final board = controller.game.board;
-    assert(NDEBUG ||
+    assert(disableDebug ||
         quiver.listsEqual(
             (board.makeSearchBoard()..canonicalize()).slotData.raw,
             scratch.slotData.raw));
-    assert(NDEBUG ||
+    assert(disableDebug ||
         () {
           slotMap.fillRange(0, slotMap.length, -1);
           return true;
@@ -547,7 +543,7 @@ class Solution<ST extends Slot> extends Solver<ST> {
       }
       slotMap[canonicalized] = i;
     }
-    assert(NDEBUG || !slotMap.any((v) => v < 0));
+    assert(disableDebug || !slotMap.any((v) => v < 0));
     _takeNextStep(controller, auto);
   }
 
@@ -568,9 +564,9 @@ class Solution<ST extends Slot> extends Solver<ST> {
     final dest = board.slotFromNumber(slotMap[step.viaSlotTo]);
     final move = Move(src: src, dest: dest, automatic: auto);
     // move.debugComment = 'Used at ${step.timeUsed}';
-    assert(NDEBUG || controller._inFlight == null);
-    assert(NDEBUG || board.canSelect(src));
-    assert(NDEBUG ||
+    assert(disableDebug || controller._inFlight == null);
+    assert(disableDebug || board.canSelect(src));
+    assert(disableDebug ||
         board.canDrop(
             FoundCard(srcSlot, step.viaNumCards, bottom, ui.Rect.zero), dest));
     controller._inFlight = _GameAnimation<ST>(controller, [move],
@@ -588,9 +584,8 @@ class Drag<ST extends Slot> implements MovingStack<ST> {
   final ui.Offset start;
   ui.Offset current;
 
-  Drag(this.card, ui.Offset start)
-      : start = start,
-        current = start;
+  Drag(this.card, this.start)
+      : current = start;
 
   @override
   int get numCards => card.numCards;
@@ -674,7 +669,7 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
     }
   }
 
-  void show() => controller.notifyListeners();
+  void show() => controller.publicNotifyListeners();
 
   void finish() {
     while (move < moves.length) {
@@ -682,9 +677,9 @@ class _GameAnimation<ST extends Slot> implements MovingStack<ST> {
     }
     time.stop();
     timer.cancel();
-    assert(NDEBUG || controller._inFlight == this, '${controller._inFlight}');
+    assert(disableDebug || controller._inFlight == this, '${controller._inFlight}');
     controller._inFlight = null;
-    controller.notifyListeners();
+    controller.publicNotifyListeners();
     onFinished();
   }
 

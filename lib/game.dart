@@ -42,7 +42,7 @@ abstract class Board<ST extends Slot, SD extends SlotData> {
   void addActiveSlotGroup(Iterable<ST> slots) {
     _slotGroupCounts.add(slots.length);
     for (final slot in slots) {
-      assert(NDEBUG || slot.slotNumber == _activeSlots.length);
+      assert(disableDebug || slot.slotNumber == _activeSlots.length);
       _activeSlots.add(slot);
     }
   }
@@ -114,7 +114,7 @@ abstract class Game<ST extends Slot> {
       : slots = List.unmodifiable(slots) {
     assert(slots.last is CarriageReturnSlot);
     for (final s in slots) {
-      assert((!(s is Slot)) || (s is ST));
+      assert((s is! Slot) || (s is ST));
     }
   }
 
@@ -167,7 +167,7 @@ class UndoRecord<ST extends Slot> {
 
   void printComment() {
     if (debugComment != null) {
-      print(debugComment);
+      debugPrint(debugComment);
     }
   }
 }
@@ -218,7 +218,7 @@ class ListSlotData extends SlotData {
         dest.add(c);
       }
     }
-    assert(NDEBUG || r._assertListsOK());
+    assert(disableDebug || r._assertListsOK());
     return r;
   }
 
@@ -307,7 +307,7 @@ class SearchSlotData extends SlotData {
       : _raw = _makeRaw(numSlots),
         timeUsed = 0,
         super(numSlots) {
-    assert(NDEBUG ||
+    assert(disableDebug ||
         () {
           for (int i = 0; i < _numCards; i++) {
             _raw[i] = _uninitialized;
@@ -321,10 +321,9 @@ class SearchSlotData extends SlotData {
     }
   }
 
-  SearchSlotData._copy(int depth, SearchSlotData other)
+  SearchSlotData._copy(this.depth, SearchSlotData other)
       : _raw = Uint8List.fromList(other._raw),
         from = other,
-        depth = depth,
         timeUsed = other.timeUsed,
         super(other.numSlots);
 
@@ -457,7 +456,7 @@ class SearchCardList implements CardList {
 
   @override
   void add(Card c) {
-    assert(NDEBUG || _raw[c.index] == SearchSlotData._uninitialized);
+    assert(disableDebug || _raw[c.index] == SearchSlotData._uninitialized);
     _raw[c.index] = _top;
     _top = c.index;
     _raw[_offset]++;
@@ -474,27 +473,27 @@ class SearchCardList implements CardList {
 
   @override
   void moveStackTo(int numCards, covariant SearchCardList dest) {
-    assert(NDEBUG || dest != this);
-    assert(NDEBUG || numCards > 0);
-    assert(NDEBUG || numCards <= this.numCards, '$numCards > ${this.numCards}');
+    assert(disableDebug || dest != this);
+    assert(disableDebug || numCards > 0);
+    assert(disableDebug || numCards <= this.numCards, '$numCards > ${this.numCards}');
     int addr = _offset + 1; // Address of _top;
     int top = _raw[addr];
     for (int i = 0; i < numCards; i++) {
       addr = _raw[addr];
-      assert(NDEBUG || addr < SearchSlotData._numCards);
+      assert(disableDebug || addr < SearchSlotData._numCards);
     }
     _raw[_offset] -= numCards;
     _raw[_offset + 1] = _raw[addr];
     _raw[dest._offset] += numCards;
     _raw[addr] = _raw[dest._offset + 1];
     _raw[dest._offset + 1] = top;
-    assert(NDEBUG || _listOK());
-    assert(NDEBUG || dest._listOK());
+    assert(disableDebug || _listOK());
+    assert(disableDebug || dest._listOK());
   }
 
   bool _listOK() {
     assert(
-        NDEBUG || numCards == fromTop.length, '$numCards, ${fromTop.length}');
+        disableDebug || numCards == fromTop.length, '$numCards, ${fromTop.length}');
     return true;
   }
 }
@@ -521,7 +520,7 @@ class _SearchCardListIterator extends Iterator<Card> {
       return false;
     }
     _current = _list._raw[_current];
-    assert(NDEBUG ||
+    assert(disableDebug ||
         _current < SearchSlotData._numCards ||
         _current == SearchSlotData._endList);
     return _current != SearchSlotData._endList;
@@ -647,7 +646,7 @@ class Deck {
 
   Deck() {
     for (int i = 0; i < cards.length; i++) {
-      assert(NDEBUG || cards[i].index == i);
+      assert(disableDebug || cards[i].index == i);
     }
   }
 

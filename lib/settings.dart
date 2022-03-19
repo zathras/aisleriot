@@ -18,7 +18,6 @@
 */
 
 import 'dart:convert';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -42,7 +41,7 @@ class Settings {
       try {
         r.decodeJson(json.decode(js) as Map<String, dynamic>);
       } catch (e) {
-        print(e);
+        debugPrint(e.toString());
       }
     }
     return r;

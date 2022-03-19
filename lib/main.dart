@@ -17,19 +17,18 @@
  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
-import 'dart:ui';
 
-import 'package:aisleriot/graphics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:jovial_svg/jovial_svg.dart';
-import 'package:pedantic/pedantic.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'graphics.dart';
 import 'controller.dart';
 import 'constants.dart';
 import 'games/freecell.dart';
@@ -120,7 +119,7 @@ class Assets {
   }
 
   static Stream<LicenseEntry> _getLicenses() async* {
-    yield LicenseEntryWithLineBreaks(['jovial aisleriot'], LICENSE);
+    yield const LicenseEntryWithLineBreaks(['jovial aisleriot'], license);
   }
 }
 
@@ -140,29 +139,27 @@ class MainWindow extends StatefulWidget {
   final Assets assets;
   final Settings initialSettings;
 
-  MainWindow(Assets assets, this.initialSettings) : assets = assets;
+  const MainWindow(this.assets, this.initialSettings, {Key? key}) : super(key: key);
 
   @override
-  _MainWindowState createState() =>
-      _MainWindowState(assets.initialDeck, initialSettings);
+  _MainWindowState createState() => _MainWindowState();
 }
 
 class _MainWindowState extends State<MainWindow> {
-  Deck lastDeckSelected;
+  late Deck lastDeckSelected;
   GamePainter? painter;
-  Settings settings;
+  late Settings settings;
   bool _first = true;
   bool winOrLossRecorded = false;
-  final GameController controller;
+  late final GameController controller;
   GameStatistics stats = GameStatistics();
-
-  _MainWindowState(this.lastDeckSelected, Settings settings)
-      : settings = settings,
-        controller = Freecell(settings).makeController();
 
   @override
   void initState() {
     super.initState();
+    settings = widget.initialSettings;
+    lastDeckSelected = widget.assets.initialDeck;
+    controller = Freecell(settings).makeController();
     controller.gameChangeNotifier.addListener(_stateChanged);
     stats = settings.statistics
         .putIfAbsent(controller.game.id, () => GameStatistics());
@@ -213,7 +210,7 @@ class _MainWindowState extends State<MainWindow> {
       double devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
       unawaited(() async {
         final cc = settings.cacheCardImages;
-        await Future<void>.delayed(Duration(milliseconds: 40));
+        await Future<void>.delayed(const Duration(milliseconds: 40));
         GamePainter p = await lastDeckSelected.makePainter(
             widget.assets.bundle, devicePixelRatio,
             cacheCards: cc);
@@ -252,12 +249,12 @@ class _MainWindowState extends State<MainWindow> {
                   Align(
                       alignment: Alignment.topRight,
                       child: Padding(
-                          padding: EdgeInsets.fromLTRB(0, 8, 8, 0),
+                          padding: const EdgeInsets.fromLTRB(0, 8, 8, 0),
                           child: _buildMenu(context))),
                   Align(
                       alignment: Alignment.topLeft,
                       child: Padding(
-                          padding: EdgeInsets.fromLTRB(5, 10, 0, 0),
+                          padding: const EdgeInsets.fromLTRB(5, 10, 0, 0),
                           child: ScalableImageWidget(
                               si: widget.assets.icon, scale: 0.08))),
                 ],
@@ -277,22 +274,22 @@ class _MainWindowState extends State<MainWindow> {
             PopupMenuItem(
                 enabled: controller.game.canUndo,
                 value: () => controller.undo(),
-                child: Row(children: [Icon(Icons.arrow_back), Text(' Undo')])),
+                child: Row(children: const [Icon(Icons.arrow_back), Text(' Undo')])),
             PopupMenuItem(
                 enabled: true,
                 value: () => controller.solve(),
-                child: Text(r'¯\_(ツ)_/¯  Solve')),
+                child: const Text(r'¯\_(ツ)_/¯  Solve')),
             PopupMenuItem(
                 enabled: controller.game.canRedo,
                 value: () => controller.redo(),
                 child:
-                    Row(children: [Icon(Icons.arrow_forward), Text(' Redo')])),
+                    Row(children: const [Icon(Icons.arrow_forward), Text(' Redo')])),
             PopupMenuItem(
                 enabled: true,
                 value: () {
                   newGame();
                 },
-                child: Text('New Game')),
+                child: const Text('New Game')),
             PopupMenuItem(value: () {}, child: _settingsMenu(context)),
             PopupMenuItem(
                 value: () {}, child: _HelpMenu('Help', widget.assets.icon))
@@ -312,7 +309,7 @@ class _MainWindowState extends State<MainWindow> {
                 Clipboard.setData(ClipboardData(text: ext));
                 Navigator.pop(context);
               },
-              child: Text('Copy game to clipboard')),
+              child: const Text('Copy game to clipboard')),
           PopupMenuItem(
               value: () {
                 unawaited(() async {
@@ -323,22 +320,22 @@ class _MainWindowState extends State<MainWindow> {
                       return showErrorDialog(context, 'Empty clipboard', null);
                     }
                     controller.game.board.setFromExternal(cd);
-                    controller.notifyListeners();
+                    controller.publicNotifyListeners();
                   } catch (e, s) {
-                    print(e);
-                    print(s);
+                    debugPrint(e.toString());
+                    debugPrint(s.toString());
                     return showErrorDialog(context, 'Clipboard error', e);
                   }
                 }());
                 Navigator.pop(context);
               },
-              child: Text('Paste game from clipboard')),
+              child: const Text('Paste game from clipboard')),
         ],
         child: Row(
-          children: [
+          children: const [
             Text('Save / Restore'),
-            const Spacer(),
-            const Icon(Icons.arrow_right, size: 30.0),
+            Spacer(),
+            Icon(Icons.arrow_right, size: 30.0),
           ],
         ),
       );
@@ -353,7 +350,7 @@ class _MainWindowState extends State<MainWindow> {
               value: () {},
               child: Row(
                 children: [
-                  Text('Deck:  '),
+                  const Text('Deck:  '),
                   DropdownButton(
                       value: lastDeckSelected,
                       // icon: const Icon(Icons.arrow_downward),
@@ -388,7 +385,7 @@ class _MainWindowState extends State<MainWindow> {
                 });
                 Navigator.pop(context);
               },
-              child: Row(children: [
+              child: Row(children: const [
                 SizedBox(width: 15),
                 Icon(Icons.reset_tv),
                 SizedBox(width: 28),
@@ -396,10 +393,11 @@ class _MainWindowState extends State<MainWindow> {
               ])),
         ],
         child: Row(
-          children: [
+          children: const
+          [
             Text('Settings'),
-            const Spacer(),
-            const Icon(Icons.arrow_right, size: 30.0),
+            Spacer(),
+            Icon(Icons.arrow_right, size: 30.0),
           ],
         ),
       );
@@ -424,7 +422,7 @@ class _MainWindowState extends State<MainWindow> {
           // A slight delay so Flutter has a chance to at least start
           // dismissing the dropdown on slow platforms.  I miss having
           // thread priorities :-)
-          await Future<void>.delayed(Duration(milliseconds: 50));
+          await Future<void>.delayed(const Duration(milliseconds: 50));
           final p = await newDeck.makePainter(
               widget.assets.bundle, devicePixelRatio,
               cacheCards: settings.cacheCardImages);
@@ -468,27 +466,27 @@ class ButtonArea extends StatelessWidget {
       return Container(
           height: 5000,
           width: width,
-          color: Color(0xff00270a),
+          color: const Color(0xff00270a),
           child: Padding(
-              padding: EdgeInsets.fromLTRB(8, 60, 0, 0),
+              padding: const EdgeInsets.fromLTRB(8, 60, 0, 0),
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     ...(h > 370
                         ? [
-                            SizedBox(height: 45),
+                            const SizedBox(height: 45),
                             Center(
                                 child: Padding(
-                                    padding: EdgeInsets.fromLTRB(0, 0, 8, 0),
+                                    padding: const EdgeInsets.fromLTRB(0, 0, 8, 0),
                                     child: ElevatedButton(
                                       onPressed: () {
                                         state.newGame();
                                       },
-                                      child: Text(
+                                      child: const Text(
                                         'New Game',
                                       ), // color: Settings.foregroundColor),
                                     ))),
-                            SizedBox(height: 45),
+                            const SizedBox(height: 45),
                           ]
                         : []),
                     Text(' W:  ${state.stats.wins}', style: _style, textAlign: TextAlign.left),
@@ -496,42 +494,42 @@ class ButtonArea extends StatelessWidget {
                     Text(' L:   ${state.stats.losses}', style: _style),
                     ...(h > 400
                         ? [
-                            SizedBox(height: 30),
+                            const SizedBox(height: 30),
                             Row(children: [
                               Padding(
-                                  padding: EdgeInsets.fromLTRB(5, 0, 0, 0),
+                                  padding: const EdgeInsets.fromLTRB(5, 0, 0, 0),
                                   child: SizedBox(
                                       width: 40,
                                       child: ElevatedButton(
                                         onPressed: state.controller.game.canUndo
                                             ? () => state.controller.undo()
                                             : null,
-                                        child: Icon(
+                                        child: const Icon(
                                           Icons.arrow_back,
                                         ), // color: Settings.foregroundColor),
                                       ))),
                               Padding(
-                                  padding: EdgeInsets.fromLTRB(15, 0, 0, 0),
+                                  padding: const EdgeInsets.fromLTRB(15, 0, 0, 0),
                                   child: SizedBox(
                                       width: 40,
                                       child: ElevatedButton(
                                         onPressed: state.controller.game.canRedo
                                             ? () => state.controller.redo()
                                             : null,
-                                        child: Icon(
+                                        child: const Icon(
                                           Icons.arrow_forward,
                                         ), // color: Settings.foregroundColor),
                                       ))),
                             ]),
-                            SizedBox(height: 20),
+                            const SizedBox(height: 20),
                             Padding(
-                                padding: EdgeInsets.fromLTRB(15, 0, 0, 0),
+                                padding: const EdgeInsets.fromLTRB(15, 0, 0, 0),
                                 child: SizedBox(
                                     width: 80,
                                     child: ElevatedButton(
                                         onPressed: () =>
                                             state.controller.solve(),
-                                        child: Text(r'¯\_(ツ)_/¯',
+                                        child: const Text(r'¯\_(ツ)_/¯',
                                             style: TextStyle(fontSize: 10))))),
                           ]
                         : []),
@@ -541,21 +539,21 @@ class ButtonArea extends StatelessWidget {
       return Container(
           height: height!,
           width: 50000,
-          color: Color(0xff00270a),
+          color: const Color(0xff00270a),
           child: Center(
               child: Row(children: [
-            SizedBox(width: 45),
-            Spacer(),
+            const SizedBox(width: 45),
+            const Spacer(),
             ...(w > 630
                 ? [
                     ElevatedButton(
                         onPressed: () {
                           state.newGame();
                         },
-                        child: Text(
+                        child: const Text(
                           'New Game',
                         )), // color: Settings.foregroundColor),
-                    Spacer(),
+                    const Spacer(),
                   ]
                 : []),
             SizedBox(
@@ -566,45 +564,45 @@ class ButtonArea extends StatelessWidget {
                       'Losses: ${state.stats.losses}',
                       style: _style)),
             ),
-            Spacer(),
+            const Spacer(),
             ...(w > 510
                 ? [
                     Padding(
-                        padding: EdgeInsets.fromLTRB(0, 0, 0, 0),
+                        padding: const EdgeInsets.fromLTRB(0, 0, 0, 0),
                         child: SizedBox(
                             width: 55,
                             child: ElevatedButton(
                               onPressed: state.controller.game.canUndo
                                   ? () => state.controller.undo()
                                   : null,
-                              child: Icon(
+                              child: const Icon(
                                 Icons.arrow_back,
                               ), // color: Settings.foregroundColor),
                             ))),
                     Padding(
-                        padding: EdgeInsets.fromLTRB(15, 0, 0, 0),
+                        padding: const EdgeInsets.fromLTRB(15, 0, 0, 0),
                         child: SizedBox(
                             width: 80,
                             child: ElevatedButton(
                                 onPressed: () => state.controller.solve(),
-                                child: Text(r'¯\_(ツ)_/¯',
+                                child: const Text(r'¯\_(ツ)_/¯',
                                     style: TextStyle(fontSize: 9))))),
                     Padding(
-                        padding: EdgeInsets.fromLTRB(15, 0, 0, 0),
+                        padding: const EdgeInsets.fromLTRB(15, 0, 0, 0),
                         child: SizedBox(
                             width: 55,
                             child: ElevatedButton(
                               onPressed: state.controller.game.canRedo
                                   ? () => state.controller.redo()
                                   : null,
-                              child: Icon(
+                              child: const Icon(
                                 Icons.arrow_forward,
                               ), // color: Settings.foregroundColor),
                             ))),
                   ]
                 : []),
-            Spacer(),
-            SizedBox(width: 40)
+            const Spacer(),
+            const SizedBox(width: 40)
           ])));
     } else {
       throw 'Internal error';
@@ -616,7 +614,7 @@ class _HelpMenu extends StatelessWidget {
   final String title;
   final ScalableImage icon;
 
-  _HelpMenu(this.title, this.icon);
+  const _HelpMenu(this.title, this.icon);
 
   @override
   Widget build(BuildContext context) {
@@ -629,47 +627,47 @@ class _HelpMenu extends StatelessWidget {
       itemBuilder: (BuildContext context) => <PopupMenuEntry<void Function()>>[
         PopupMenuItem(
             value: () {
-              Navigator.pop<void>(context, () {});
+              Navigator.pop<void>(context, null);
               unawaited(
                   showDialog(context: context, builder: _showNonWarranty));
             },
-            child: Text('Non-warranty')),
+            child: const Text('Non-warranty')),
         PopupMenuItem(
             value: () {
-              Navigator.pop<void>(context, () {});
-              launch(APPLICATION_ISSUE_ADDRESS);
+              Navigator.pop<void>(context, null);
+              launch(applicationIssueAddress);
             },
-            child: Text('Submit Issue (Web)')),
+            child: const Text('Submit Issue (Web)')),
         PopupMenuItem(
             value: () {
-              Navigator.pop<void>(context, () {});
+              Navigator.pop<void>(context, null);
               unawaited(showDialog(
                   context: context, builder: (c) => _showPerformance(c)));
             },
-            child: Text('Performance Stats')),
+            child: const Text('Performance Stats')),
         PopupMenuItem(
             value: () {
-              Navigator.pop<void>(context, () {});
+              Navigator.pop<void>(context, null);
               showAboutDialog(
                   context: context,
                   applicationIcon: ScalableImageWidget(si: icon, scale: 0.1),
                   applicationName: 'Jovial Aisleriot',
-                  applicationVersion: 'Version $APPLICATION_VERSION',
-                  applicationLegalese: '© 2021 Bill Foote',
+                  applicationVersion: 'Version $applicationVersion',
+                  applicationLegalese: '© 2021-2022 Bill Foote',
                   children: [
-                    SizedBox(height: 40),
+                    const SizedBox(height: 40),
                     InkWell(
-                        onTap: () => unawaited(launch(APPLICATION_WEB_ADDRESS)),
+                        onTap: () => unawaited(launch(applicationWebAddress)),
                         child: RichText(
                             textAlign: TextAlign.center,
-                            text: TextSpan(
+                            text: const TextSpan(
                                 style: TextStyle(
                                     fontSize: 18,
-                                    color: Theme.of(context).accentColor),
-                                text: APPLICATION_WEB_ADDRESS)))
+                                    color: Colors.blueAccent),
+                                text: applicationWebAddress)))
                   ]);
             },
-            child: Text('About')),
+            child: const Text('About')),
       ],
       child: Row(
         children: [
@@ -683,14 +681,14 @@ class _HelpMenu extends StatelessWidget {
 }
 
 Widget _showNonWarranty(BuildContext context) => AlertDialog(
-        title: Text('Non-Warranty'),
-        content: Text(NON_WARRANTY.replaceAll('\n', ' ')),
+        title: const Text('Non-Warranty'),
+        content: Text(nonWarranty.replaceAll('\n', ' ')),
         actions: [
           TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
               },
-              child: Text('OK'))
+              child: const Text('OK'))
         ]);
 
 Widget _showPerformance(BuildContext context) {
@@ -706,7 +704,7 @@ Widget _showPerformance(BuildContext context) {
 
   histogram = sb.toString();
   return AlertDialog(
-      title: Text('Performance Information'),
+      title: const Text('Performance Information'),
       content: Column(children: [
         Text(GamePainter.loadMessages
             .fold(StringBuffer(),
@@ -722,7 +720,7 @@ Widget _showPerformance(BuildContext context) {
             onPressed: () {
               Navigator.of(context).pop();
             },
-            child: Text('OK'))
+            child: const Text('OK'))
       ]);
 }
 
@@ -783,23 +781,25 @@ class GameWidget extends StatefulWidget {
   final GamePainter painter;
   final GameController controller;
 
-  GameWidget(this.assets, this.controller, this.painter, {Key? key})
+  const GameWidget(this.assets, this.controller, this.painter, {Key? key})
       : super(key: key);
 
   @override
-  GameState createState() => GameState(assets, controller);
+  GameState createState() => GameState();
 }
 
 class GameState extends State<GameWidget> {
-  final GameController controller;
-  final Assets assets;
+  late final GameController controller;
+  late final Assets assets;
   bool needsPaint = false;
 
-  GameState(this.assets, this.controller);
+  GameState();
 
   @override
   void initState() {
     super.initState();
+    assets = widget.assets;
+    controller = widget.controller;
     controller.addListener(_appearanceChanged);
     controller.painter = widget.painter;
   }
@@ -869,7 +869,7 @@ class ErrorDialog extends StatelessWidget {
   final String message;
   final Object? exception;
 
-  ErrorDialog(this.message, this.exception);
+  const ErrorDialog(this.message, this.exception, {Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -879,17 +879,17 @@ class ErrorDialog extends StatelessWidget {
       try {
         exs = exception.toString();
       } catch (ex) {
-        print('Error in exception.toString()');
+        debugPrint('Error in exception.toString()');
       }
     }
     // return object of type Dialog
     return AlertDialog(
       title: Text(message),
       content: (exception == null)
-          ? Text('')
+          ? const Text('')
           : SingleChildScrollView(
               child: Column(children: [
-                SizedBox(height: 20),
+                const SizedBox(height: 20),
                 Text(exs),
               ]),
             ),
@@ -899,7 +899,7 @@ class ErrorDialog extends StatelessWidget {
           onPressed: () {
             Navigator.of(context).pop();
           },
-          child: Text('OK'),
+          child: const Text('OK'),
         )
       ],
     );

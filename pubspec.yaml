@@ -6,16 +6,17 @@ publish_to: 'none'
 version: 0.0.1+1
 
 environment:
-  sdk: ">=2.13.0 <3.0.0"
+  sdk: ">=2.15.0 <3.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  pedantic: ^1.0.8
+  flutter_lints: ^1.0.4
   collection: ^1.15.0
   quiver: ^3.0.1
   shared_preferences: ^2.0.5
   jovial_svg: ^1.0.5
+  jovial_misc: ^0.8.4
   url_launcher: ^6.0.3
   uni_links: ^0.5.1
   uni_links_web: ^0.1.0
