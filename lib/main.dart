@@ -33,6 +33,7 @@ import 'controller.dart';
 import 'constants.dart';
 import 'games/freecell.dart';
 import 'settings.dart';
+import 'solver.dart';
 
 void main() async {
   // Get there first.
@@ -635,7 +636,7 @@ class _HelpMenu extends StatelessWidget {
         PopupMenuItem(
             value: () {
               Navigator.pop<void>(context, null);
-              launch(applicationIssueAddress);
+              launchUrl(applicationIssueAddress);
             },
             child: const Text('Submit Issue (Web)')),
         PopupMenuItem(
@@ -657,14 +658,14 @@ class _HelpMenu extends StatelessWidget {
                   children: [
                     const SizedBox(height: 40),
                     InkWell(
-                        onTap: () => unawaited(launch(applicationWebAddress)),
+                        onTap: () => unawaited(launchUrl(applicationWebAddress)),
                         child: RichText(
                             textAlign: TextAlign.center,
-                            text: const TextSpan(
-                                style: TextStyle(
+                            text: TextSpan(
+                                style: const TextStyle(
                                     fontSize: 18,
                                     color: Colors.blueAccent),
-                                text: applicationWebAddress)))
+                                text: applicationWebAddress.toString())))
                   ]);
             },
             child: const Text('About')),
