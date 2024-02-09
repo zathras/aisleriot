@@ -20,7 +20,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -31,7 +30,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'graphics.dart';
 import 'controller.dart';
 import 'constants.dart';
-import 'games/freecell.dart';
+import 'games/aisleriot.dart';
 import 'settings.dart';
 import 'solver.dart';
 
@@ -59,8 +58,10 @@ class TopWindow extends StatelessWidget {
         theme: Theme.of(context).copyWith(
           elevatedButtonTheme: ElevatedButtonThemeData(
               style: ElevatedButton.styleFrom(
-            primary: Colors.indigo.shade400,
-            onSurface: Colors.white,
+            backgroundColor: Colors.indigo.shade400,
+            foregroundColor: Colors.white,
+            disabledForegroundColor: Colors.white.withOpacity(0.38),
+            disabledBackgroundColor: Colors.white.withOpacity(0.12),
           )),
         ),
         home: Material(
@@ -68,7 +69,8 @@ class TopWindow extends StatelessWidget {
             // https://stackoverflow.com/questions/47114639/yellow-lines-under-text-widgets-in-flutter
             type: MaterialType.transparency,
             child: Builder(
-              builder: (BuildContext context) => MainWindow(assets, initialSettings))));
+                builder: (BuildContext context) =>
+                    MainWindow(assets, initialSettings))));
   }
 }
 
@@ -140,13 +142,14 @@ class MainWindow extends StatefulWidget {
   final Assets assets;
   final Settings initialSettings;
 
-  const MainWindow(this.assets, this.initialSettings, {Key? key}) : super(key: key);
+  const MainWindow(this.assets, this.initialSettings, {Key? key})
+      : super(key: key);
 
   @override
-  _MainWindowState createState() => _MainWindowState();
+  MainWindowState createState() => MainWindowState();
 }
 
-class _MainWindowState extends State<MainWindow> {
+class MainWindowState extends State<MainWindow> {
   late Deck lastDeckSelected;
   GamePainter? painter;
   late Settings settings;
@@ -227,40 +230,38 @@ class _MainWindowState extends State<MainWindow> {
     }
     final p = painter;
     return LayoutBuilder(builder: (context, BoxConstraints bc) {
-              final short = bc.hasBoundedHeight &&
-                  bc.hasBoundedWidth &&
-                  bc.maxHeight * 1.5 < bc.maxWidth;
-              return Stack(
-                children: [
-                  Padding(
-                    padding: short
-                        ? const EdgeInsets.fromLTRB(130, 0, 0, 0)
-                        : const EdgeInsets.fromLTRB(0, 60, 0, 0),
-                    child: (p != null)
-                        ? GameWidget(widget.assets, controller, p)
-                        : Container(
-                            color: GamePainter.background,
-                          ),
+      final short = bc.hasBoundedHeight &&
+          bc.hasBoundedWidth &&
+          bc.maxHeight * 1.5 < bc.maxWidth;
+      return Stack(
+        children: [
+          Padding(
+            padding: short
+                ? const EdgeInsets.fromLTRB(130, 0, 0, 0)
+                : const EdgeInsets.fromLTRB(0, 60, 0, 0),
+            child: (p != null)
+                ? GameWidget(widget.assets, controller, p)
+                : Container(
+                    color: GamePainter.background,
                   ),
-                  short
-                      ? ButtonArea(
-                          state: this, width: 130, maxHeight: bc.maxHeight)
-                      : ButtonArea(
-                          state: this, height: 60, maxWidth: bc.maxWidth),
-                  Align(
-                      alignment: Alignment.topRight,
-                      child: Padding(
-                          padding: const EdgeInsets.fromLTRB(0, 8, 8, 0),
-                          child: _buildMenu(context))),
-                  Align(
-                      alignment: Alignment.topLeft,
-                      child: Padding(
-                          padding: const EdgeInsets.fromLTRB(5, 10, 0, 0),
-                          child: ScalableImageWidget(
-                              si: widget.assets.icon, scale: 0.08))),
-                ],
-              );
-            });
+          ),
+          short
+              ? ButtonArea(state: this, width: 130, maxHeight: bc.maxHeight)
+              : ButtonArea(state: this, height: 60, maxWidth: bc.maxWidth),
+          Align(
+              alignment: Alignment.topRight,
+              child: Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 8, 8, 0),
+                  child: _buildMenu(context))),
+          Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                  padding: const EdgeInsets.fromLTRB(5, 10, 0, 0),
+                  child: ScalableImageWidget(
+                      si: widget.assets.icon, scale: 0.08))),
+        ],
+      );
+    });
   }
 
   Widget _buildMenu(BuildContext context) => PopupMenuButton(
@@ -275,7 +276,8 @@ class _MainWindowState extends State<MainWindow> {
             PopupMenuItem(
                 enabled: controller.game.canUndo,
                 value: () => controller.undo(),
-                child: Row(children: const [Icon(Icons.arrow_back), Text(' Undo')])),
+                child: const Row(
+                    children: [Icon(Icons.arrow_back), Text(' Undo')])),
             PopupMenuItem(
                 enabled: true,
                 value: () => controller.solve(),
@@ -283,8 +285,8 @@ class _MainWindowState extends State<MainWindow> {
             PopupMenuItem(
                 enabled: controller.game.canRedo,
                 value: () => controller.redo(),
-                child:
-                    Row(children: const [Icon(Icons.arrow_forward), Text(' Redo')])),
+                child: const Row(
+                    children: [Icon(Icons.arrow_forward), Text(' Redo')])),
             PopupMenuItem(
                 enabled: true,
                 value: () {
@@ -318,22 +320,29 @@ class _MainWindowState extends State<MainWindow> {
                   try {
                     cd = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
                     if (cd == null || cd == '') {
-                      return showErrorDialog(context, 'Empty clipboard', null);
+                      if (context.mounted) {
+                        return showErrorDialog(
+                            context, 'Empty clipboard', null);
+                      }
+                      return;
                     }
                     controller.game.board.setFromExternal(cd);
                     controller.publicNotifyListeners();
                   } catch (e, s) {
                     debugPrint(e.toString());
                     debugPrint(s.toString());
-                    return showErrorDialog(context, 'Clipboard error', e);
+                    if (context.mounted) {
+                      return showErrorDialog(context, 'Clipboard error', e);
+                    }
+                    return;
                   }
                 }());
                 Navigator.pop(context);
               },
               child: const Text('Paste game from clipboard')),
         ],
-        child: Row(
-          children: const [
+        child: const Row(
+          children: [
             Text('Save / Restore'),
             Spacer(),
             Icon(Icons.arrow_right, size: 30.0),
@@ -386,16 +395,15 @@ class _MainWindowState extends State<MainWindow> {
                 });
                 Navigator.pop(context);
               },
-              child: Row(children: const [
+              child: const Row(children: [
                 SizedBox(width: 15),
                 Icon(Icons.reset_tv),
                 SizedBox(width: 28),
                 Text('Reset Score')
               ])),
         ],
-        child: Row(
-          children: const
-          [
+        child: const Row(
+          children: [
             Text('Settings'),
             Spacer(),
             Icon(Icons.arrow_right, size: 30.0),
@@ -439,7 +447,7 @@ class _MainWindowState extends State<MainWindow> {
 }
 
 class ButtonArea extends StatelessWidget {
-  final _MainWindowState state;
+  final MainWindowState state;
   final double? height;
   final double? width;
   final double? maxWidth;
@@ -478,7 +486,8 @@ class ButtonArea extends StatelessWidget {
                             const SizedBox(height: 45),
                             Center(
                                 child: Padding(
-                                    padding: const EdgeInsets.fromLTRB(0, 0, 8, 0),
+                                    padding:
+                                        const EdgeInsets.fromLTRB(0, 0, 8, 0),
                                     child: ElevatedButton(
                                       onPressed: () {
                                         state.newGame();
@@ -490,7 +499,8 @@ class ButtonArea extends StatelessWidget {
                             const SizedBox(height: 45),
                           ]
                         : []),
-                    Text(' W:  ${state.stats.wins}', style: _style, textAlign: TextAlign.left),
+                    Text(' W:  ${state.stats.wins}',
+                        style: _style, textAlign: TextAlign.left),
                     Text(' ', style: _style),
                     Text(' L:   ${state.stats.losses}', style: _style),
                     ...(h > 400
@@ -498,7 +508,8 @@ class ButtonArea extends StatelessWidget {
                             const SizedBox(height: 30),
                             Row(children: [
                               Padding(
-                                  padding: const EdgeInsets.fromLTRB(5, 0, 0, 0),
+                                  padding:
+                                      const EdgeInsets.fromLTRB(5, 0, 0, 0),
                                   child: SizedBox(
                                       width: 40,
                                       child: ElevatedButton(
@@ -510,7 +521,8 @@ class ButtonArea extends StatelessWidget {
                                         ), // color: Settings.foregroundColor),
                                       ))),
                               Padding(
-                                  padding: const EdgeInsets.fromLTRB(15, 0, 0, 0),
+                                  padding:
+                                      const EdgeInsets.fromLTRB(15, 0, 0, 0),
                                   child: SizedBox(
                                       width: 40,
                                       child: ElevatedButton(
@@ -583,7 +595,7 @@ class ButtonArea extends StatelessWidget {
                     Padding(
                         padding: const EdgeInsets.fromLTRB(15, 0, 0, 0),
                         child: SizedBox(
-                            width: 80,
+                            width: 95,
                             child: ElevatedButton(
                                 onPressed: () => state.controller.solve(),
                                 child: const Text(r'¯\_(ツ)_/¯',
@@ -658,13 +670,13 @@ class _HelpMenu extends StatelessWidget {
                   children: [
                     const SizedBox(height: 40),
                     InkWell(
-                        onTap: () => unawaited(launchUrl(applicationWebAddress)),
+                        onTap: () =>
+                            unawaited(launchUrl(applicationWebAddress)),
                         child: RichText(
                             textAlign: TextAlign.center,
                             text: TextSpan(
                                 style: const TextStyle(
-                                    fontSize: 18,
-                                    color: Colors.blueAccent),
+                                    fontSize: 18, color: Colors.blueAccent),
                                 text: applicationWebAddress.toString())))
                   ]);
             },
@@ -708,8 +720,11 @@ Widget _showPerformance(BuildContext context) {
       title: const Text('Performance Information'),
       content: Column(children: [
         Text(GamePainter.loadMessages
-            .fold(StringBuffer(),
-                (StringBuffer buf, el) => buf..write(el)..write('\n'))
+            .fold(
+                StringBuffer(),
+                (StringBuffer buf, el) => buf
+                  ..write(el)
+                  ..write('\n'))
             .toString()),
         Expanded(
             child: SingleChildScrollView(

@@ -19,6 +19,8 @@
  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+library aisleriot;
+
 import 'dart:math';
 
 import 'package:aisleriot/graphics.dart';
@@ -28,38 +30,38 @@ import '../constants.dart';
 import '../game.dart';
 import '../settings.dart';
 
-abstract class _FreecellGenericSlot implements Slot {
+abstract class ARGenericSlot implements Slot {
   /// Is moving movable to us?
-  bool movableTo(_SlotStack moving, FreecellBoard board);
+  bool movableTo(SlotStack moving, FreecellBoard board);
 
-  bool canSelect(_SlotStack cards, FreecellBoard board);
+  bool canSelect(SlotStack cards, FreecellBoard board);
 }
 
-typedef _SlotStack = CardStack<_FreecellGenericSlot>;
-typedef _Move = Move<_FreecellGenericSlot>;
-typedef _FoundCard = FoundCard<_FreecellGenericSlot>;
+typedef SlotStack = CardStack<ARGenericSlot>;
+typedef ARMove = Move<ARGenericSlot>;
+typedef ARFoundCard = FoundCard<ARGenericSlot>;
 
-class _FreecellSlot extends NormalSlot implements _FreecellGenericSlot {
+class _FreecellSlot extends NormalSlot implements ARGenericSlot {
   _FreecellSlot(Board board, int slotNumber) : super(board, slotNumber);
 
   @override
-  bool canSelect(_SlotStack cards, FreecellBoard board) => true;
+  bool canSelect(SlotStack cards, FreecellBoard board) => true;
 
   /// movable-to-freecell?
   @override
-  bool movableTo(_SlotStack moving, FreecellBoard board) =>
+  bool movableTo(SlotStack moving, FreecellBoard board) =>
       isEmpty && moving.numCards == 1;
 }
 
-class _HomecellSlot extends NormalSlot implements _FreecellGenericSlot {
+class _HomecellSlot extends NormalSlot implements ARGenericSlot {
   _HomecellSlot(Board board, int slotNumber) : super(board, slotNumber);
 
   @override
-  bool canSelect(_SlotStack cards, FreecellBoard board) => false;
+  bool canSelect(SlotStack cards, FreecellBoard board) => false;
 
   /// movable-to-homecell?
   @override
-  bool movableTo(_SlotStack moving, FreecellBoard board) {
+  bool movableTo(SlotStack moving, FreecellBoard board) {
     if (moving.slot == this || moving.numCards != 1) {
       return false;
     }
@@ -89,17 +91,17 @@ class _HomecellSlot extends NormalSlot implements _FreecellGenericSlot {
   }
 }
 
-class _FieldSlot extends ExtendedSlot implements _FreecellGenericSlot {
+class _FieldSlot extends ExtendedSlot implements ARGenericSlot {
   _FieldSlot(Board board, int slotNumber) : super(board, slotNumber);
 
   @override
-  bool canSelect(_SlotStack cards, FreecellBoard board) =>
+  bool canSelect(SlotStack cards, FreecellBoard board) =>
       FreecellBoard.fieldSequenceQ(cards);
 
   /// Based on movable-to-field?, but we already know the cards being
   /// considered are a sequence.
   @override
-  bool movableTo(_SlotStack moving, FreecellBoard board) {
+  bool movableTo(SlotStack moving, FreecellBoard board) {
     if (moving.slot == this) {
       return false;
     }
@@ -116,11 +118,10 @@ class _FieldSlot extends ExtendedSlot implements _FreecellGenericSlot {
   }
 }
 
-class FreecellBoard<SD extends SlotData>
-    extends Board<_FreecellGenericSlot, SD> {
-  late final List<_FreecellSlot> freecell;
-  late final List<_HomecellSlot> homecell;
-  late final List<_FieldSlot> field;
+class FreecellBoard<SD extends SlotData> extends Board<ARGenericSlot, SD> {
+  late final List<_FreecellSlot> _freecell;
+  late final List<_HomecellSlot> _homecell;
+  late final List<_FieldSlot> _field;
 
   FreecellBoard(SD slotData) : super(slotData) {
     int slotNumber = 0;
@@ -131,21 +132,21 @@ class FreecellBoard<SD extends SlotData>
     final field = List.generate(8, (_) => _FieldSlot(this, slotNumber++),
         growable: false);
     addActiveSlotGroup(freecell);
-    this.freecell = List.unmodifiable(freecell);
+    this._freecell = List.unmodifiable(freecell);
     addActiveSlotGroup(homecell);
-    this.homecell = List.unmodifiable(homecell);
+    this._homecell = List.unmodifiable(homecell);
     addActiveSlotGroup(field);
-    this.field = List.unmodifiable(field);
+    this._field = List.unmodifiable(field);
   }
 
   @override
-  bool get gameWon => homecell.every((s) => s.isNotEmpty && s.top.value == 13);
+  bool get gameWon => _homecell.every((s) => s.isNotEmpty && s.top.value == 13);
 
   @override
-  bool canSelect(_SlotStack s) => s.slot.canSelect(s, this);
+  bool canSelect(SlotStack s) => s.slot.canSelect(s, this);
 
   @override
-  bool canDrop(_FoundCard card, _FreecellGenericSlot dest) =>
+  bool canDrop(ARFoundCard card, ARGenericSlot dest) =>
       dest.movableTo(card, this);
 
   /// field-join?
@@ -153,7 +154,7 @@ class FreecellBoard<SD extends SlotData>
       lower.suit.color != upper.suit.color && lower.value == upper.value + 1;
 
   /// field-sequence?
-  static bool fieldSequenceQ(_SlotStack cards) {
+  static bool fieldSequenceQ(SlotStack cards) {
     Card? upper;
     int toGo = cards.numCards;
     assert(disableDebug || toGo > 0);
@@ -171,17 +172,18 @@ class FreecellBoard<SD extends SlotData>
   }
 
   /// empty-field-number
-  int emptyFieldCount() => field.fold(0, (acc, f) => acc + (f.isEmpty ? 1 : 0));
+  int emptyFieldCount() =>
+      _field.fold(0, (acc, f) => acc + (f.isEmpty ? 1 : 0));
 
   /// empty-freecell-number
   int emptyFreecellCount() =>
-      freecell.fold(0, (acc, f) => acc + (f.isEmpty ? 1 : 0));
+      _freecell.fold(0, (acc, f) => acc + (f.isEmpty ? 1 : 0));
 
   /// Indexed by CardColor.index
   List<int> minimumHomecellValues() {
     final result = List.filled(2, 99);
     final count = List.filled(2, 0);
-    for (final s in homecell) {
+    for (final s in _homecell) {
       if (s.isNotEmpty) {
         final c = s.top;
         result[c.suit.color.index] = min(result[c.suit.color.index], c.value);
@@ -197,15 +199,15 @@ class FreecellBoard<SD extends SlotData>
   }
 
   @override
-  List<_Move> automaticMoves() {
+  List<ARMove> automaticMoves() {
     final homecellMin = minimumHomecellValues();
-    _Move? check(_FreecellGenericSlot slot) {
+    ARMove? check(ARGenericSlot slot) {
       if (slot.isNotEmpty) {
         if (_HomecellSlot.cardAutoEligible(slot.top, homecellMin)) {
           final stack = CardStack(slot, 1, slot.top);
-          for (final dest in homecell) {
+          for (final dest in _homecell) {
             if (dest.movableTo(stack, this)) {
-              return _Move(src: stack, dest: dest, automatic: true);
+              return ARMove(src: stack, dest: dest, automatic: true);
             }
           }
         }
@@ -213,13 +215,13 @@ class FreecellBoard<SD extends SlotData>
       return null;
     }
 
-    for (final slot in freecell) {
+    for (final slot in _freecell) {
       final m = check(slot);
       if (m != null) {
         return [m];
       }
     }
-    for (final slot in field) {
+    for (final slot in _field) {
       final m = check(slot);
       if (m != null) {
         return [m];
@@ -229,12 +231,13 @@ class FreecellBoard<SD extends SlotData>
   }
 
   @override
-  void debugPrintGoodness() => debugPrint('Goodness now ${_calculateGoodness()}');
+  void debugPrintGoodness() =>
+      debugPrint('Goodness now ${_calculateGoodness()}');
 
   double _calculateGoodness() {
     double weight = 0;
     int emptyFreecells = 0;
-    for (final s in freecell) {
+    for (final s in _freecell) {
       if (s.isEmpty) {
         emptyFreecells++;
       } else {
@@ -242,7 +245,7 @@ class FreecellBoard<SD extends SlotData>
       }
     }
     int emptyFields = 0;
-    for (final s in field) {
+    for (final s in _field) {
       Card? upper;
       if (s.isEmpty) {
         emptyFields++;
@@ -274,7 +277,7 @@ class FreecellBoard<SD extends SlotData>
     int homeMin = 99;
     int redMax = 0;
     int blackMax = 0;
-    for (final s in homecell) {
+    for (final s in _homecell) {
       homeMin = min(homeMin, s.numCards);
       if (s.isNotEmpty) {
         if (s.top.suit.color == CardColor.black) {
@@ -315,20 +318,20 @@ class _ChildCalculator {
 
   void run() {
     final SearchSlotData initial = scratch.slotData;
-    for (final s in scratch.freecell) {
+    for (final s in scratch._freecell) {
       if (s.isNotEmpty) {
-        final src = _SlotStack(s, 1, s.top);
-        moveTo(src, scratch.homecell, justOne: true);
-        moveTo(src, scratch.field);
+        final src = SlotStack(s, 1, s.top);
+        moveTo(src, scratch._homecell, justOne: true);
+        moveTo(src, scratch._field);
       }
     }
-    for (final s in scratch.field) {
+    for (final s in scratch._field) {
       tryFromField(s);
     }
     assert(disableDebug || identical(scratch.slotData, initial));
   }
 
-  void moveTo(_SlotStack src, List<_FreecellGenericSlot> slots,
+  void moveTo(SlotStack src, List<ARGenericSlot> slots,
       {bool justOne = false, int openedFieldMinValue = -1}) {
     final SearchSlotData initial = scratch.slotData;
     for (final dest in slots) {
@@ -338,7 +341,7 @@ class _ChildCalculator {
         child.viaSlotFrom = src.slot.slotNumber;
         child.viaSlotTo = dest.slotNumber;
         child.viaNumCards = src.numCards;
-        _Move(src: src, dest: dest, automatic: false).move();
+        ARMove(src: src, dest: dest, automatic: false).move();
         scratch.doAllAutomaticMoves();
         final srcTop = src.slot.isEmpty ? null : src.slot.top;
         scratch.canonicalize();
@@ -350,7 +353,7 @@ class _ChildCalculator {
           } else if (srcTop != null) {
             // src must be a field slot, so we explore further up that slot.
             _FieldSlot? newSrc;
-            for (final s in scratch.field) {
+            for (final s in scratch._field) {
               if (s.top == srcTop) {
                 newSrc = s;
                 break;
@@ -362,7 +365,7 @@ class _ChildCalculator {
           } else if (src.slot is _FieldSlot) {
             // We just opened up a field slot
             _FieldSlot? newSrc;
-            for (final s in scratch.field) {
+            for (final s in scratch._field) {
               if (s.isEmpty) {
                 newSrc = s;
                 break;
@@ -381,10 +384,10 @@ class _ChildCalculator {
   }
 
   void tryFromFreecells(int openedFieldMinValue) {
-    for (final s in scratch.freecell) {
+    for (final s in scratch._freecell) {
       if (s.isNotEmpty && s.top.value >= openedFieldMinValue) {
-        final src = _SlotStack(s, 1, s.top);
-        moveTo(src, scratch.field, openedFieldMinValue: 0);
+        final src = SlotStack(s, 1, s.top);
+        moveTo(src, scratch._field, openedFieldMinValue: 0);
       }
     }
   }
@@ -392,13 +395,13 @@ class _ChildCalculator {
   void tryFromField(_FieldSlot s) {
     int numCards = 1;
     for (final bottom in s.fromTop) {
-      final src = _SlotStack(s, numCards, bottom);
+      final src = SlotStack(s, numCards, bottom);
       if (!s.canSelect(src, scratch)) {
         break;
       }
-      moveTo(src, scratch.homecell, justOne: true);
-      moveTo(src, scratch.freecell, justOne: true);
-      moveTo(src, scratch.field);
+      moveTo(src, scratch._homecell, justOne: true);
+      moveTo(src, scratch._freecell, justOne: true);
+      moveTo(src, scratch._field);
       numCards++;
     }
   }
@@ -406,17 +409,17 @@ class _ChildCalculator {
   /// Try moving cards to a (newly) open spot on slot dest
   void tryToField(_FieldSlot dest, int minValue) {
     final destList = [dest];
-    for (final s in scratch.freecell) {
+    for (final s in scratch._freecell) {
       if (s.isNotEmpty) {
-        final src = _SlotStack(s, 1, s.top);
+        final src = SlotStack(s, 1, s.top);
         moveTo(src, destList, openedFieldMinValue: minValue);
       }
     }
-    for (final s in scratch.field) {
+    for (final s in scratch._field) {
       if (s != dest) {
         int numCards = 1;
         for (final bottom in s.fromTop) {
-          final src = _SlotStack(s, numCards, bottom);
+          final src = SlotStack(s, numCards, bottom);
           if (!s.canSelect(src, scratch)) {
             break;
           }
@@ -428,7 +431,7 @@ class _ChildCalculator {
   }
 }
 
-class Freecell extends Game<_FreecellGenericSlot> {
+class Freecell extends Game<ARGenericSlot> {
   @override
   final FreecellBoard<ListSlotData> board;
 
@@ -440,26 +443,26 @@ class Freecell extends Game<_FreecellGenericSlot> {
     final board = FreecellBoard(ListSlotData(16));
     int f = 0;
     while (!d.isEmpty) {
-      board.field[f].addCard(d.dealCard());
+      board._field[f].addCard(d.dealCard());
       f++;
-      f %= board.field.length;
+      f %= board._field.length;
     }
     final allSlots = List<SlotOrLayout>.empty(growable: true);
     allSlots.add(CarriageReturnSlot(extraHeight: 0.3));
     allSlots.add(HorizontalSpaceSlot(0.4));
-    for (final s in board.freecell) {
+    for (final s in board._freecell) {
       allSlots.add(s);
       allSlots.add(HorizontalSpaceSlot(1 / 24));
     }
     allSlots.add(HorizontalSpaceSlot(0.2));
-    for (final s in board.homecell) {
+    for (final s in board._homecell) {
       allSlots.add(s);
       allSlots.add(HorizontalSpaceSlot(1 / 24));
     }
     allSlots.add(HorizontalSpaceSlot(0.4 - 1 / 24));
     allSlots.add(CarriageReturnSlot(extraHeight: 0.3));
     allSlots.add(HorizontalSpaceSlot(0.5));
-    for (final s in board.field) {
+    for (final s in board._field) {
       allSlots.add(s);
       allSlots.add(HorizontalSpaceSlot(1 / 24));
     }
@@ -471,20 +474,20 @@ class Freecell extends Game<_FreecellGenericSlot> {
   String get id => 'freecell';
 
   @override
-  List<_Move> doubleClick(_SlotStack s) {
+  List<ARMove> doubleClick(SlotStack s) {
     if (board.canSelect(s)) {
       final homecellMin = board.minimumHomecellValues();
       final Card card = s.slot.top;
       if (_HomecellSlot.cardAutoEligible(card, homecellMin)) {
-        for (final dest in board.homecell) {
+        for (final dest in board._homecell) {
           if (dest.movableTo(s, board)) {
-            return [_Move(src: s, dest: dest, automatic: false)];
+            return [ARMove(src: s, dest: dest, automatic: false)];
           }
         }
       }
-      for (final dest in board.freecell) {
+      for (final dest in board._freecell) {
         if (dest.movableTo(s, board)) {
-          return [_Move(src: s, dest: dest, automatic: false)];
+          return [ARMove(src: s, dest: dest, automatic: false)];
         }
       }
     }

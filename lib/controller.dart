@@ -193,8 +193,7 @@ class GameController<ST extends Slot> extends ChangeNotifier {
     if (newMoves.isEmpty) {
       onDone();
     } else {
-      inFlight =
-          GameAnimation(this, newMoves, () => doAutomaticMoves(onDone));
+      inFlight = GameAnimation(this, newMoves, () => doAutomaticMoves(onDone));
       notifyListeners();
     }
   }
@@ -336,8 +335,7 @@ class Drag<ST extends Slot> implements MovingStack<ST> {
   final ui.Offset start;
   ui.Offset current;
 
-  Drag(this.card, this.start)
-      : current = start;
+  Drag(this.card, this.start) : current = start;
 
   @override
   int get numCards => card.numCards;
@@ -429,7 +427,8 @@ class GameAnimation<ST extends Slot> implements MovingStack<ST> {
     }
     time.stop();
     timer.cancel();
-    assert(disableDebug || controller.inFlight == this, '${controller.inFlight}');
+    assert(
+        disableDebug || controller.inFlight == this, '${controller.inFlight}');
     controller.inFlight = null;
     controller.publicNotifyListeners();
     onFinished();

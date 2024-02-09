@@ -18,7 +18,6 @@
 */
 
 import 'dart:math';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' as ui;
@@ -39,7 +38,7 @@ class GamePainter {
   final double devicePixelRatio;
   final _GamePainterCards _cards;
   // _cards[card.suit.value][card.value-1]
-  final _BoardLayout layout;
+  final BoardLayout layout;
   final _CardPainter _cardPainter;
   ui.Size lastPaintSize = ui.Size.zero;
   double lastPaintOffset = 0;
@@ -54,7 +53,7 @@ class GamePainter {
   GamePainter._p(_GamePainterCards cards, this.devicePixelRatio,
       {required bool cacheCards})
       : _cards = cards,
-        layout = _BoardLayout(cards.im.first.first.viewport),
+        layout = BoardLayout(cards.im.first.first.viewport),
         _cardPainter =
             cacheCards ? _CachingCardPainter(devicePixelRatio) : _CardPainter();
 
@@ -235,8 +234,12 @@ class _CachingCardPainter extends _CardPainter {
     if (cachedImage != null) {
       final p = ui.Paint();
       c.save();
-      c.scale(1/devicePixelRatio);
-      c.drawImage(cachedImage, ui.Offset(devicePixelRatio * (space.left + dx), devicePixelRatio * (space.top + dy)), p);
+      c.scale(1 / devicePixelRatio);
+      c.drawImage(
+          cachedImage,
+          ui.Offset(devicePixelRatio * (space.left + dx),
+              devicePixelRatio * (space.top + dy)),
+          p);
       c.restore();
       entry.picture?.dispose();
       entry.picture = null;
@@ -245,7 +248,7 @@ class _CachingCardPainter extends _CardPainter {
     final picture = entry.picture ?? entry.start(space, im, devicePixelRatio);
     c.save();
     c.translate(space.left + dx, space.top + dy);
-    c.scale(1/devicePixelRatio);
+    c.scale(1 / devicePixelRatio);
     c.drawPicture(picture);
     c.restore();
     return;
@@ -276,7 +279,8 @@ class _CardCacheEntry {
     im.paint(c);
     final fp = picture = rec.endRecording();
     () async {
-      final im = await fp.toImage((space.width * devicePixelRatio).ceil(), (space.height * devicePixelRatio).ceil());
+      final im = await fp.toImage((space.width * devicePixelRatio).ceil(),
+          (space.height * devicePixelRatio).ceil());
       if (disposed) {
         im.dispose(); // Too late
       } else {
@@ -307,7 +311,7 @@ class FoundCard<ST extends Slot> implements CardStack<ST> {
 }
 
 class CardFinder<ST extends Slot> {
-  final _BoardLayout layout;
+  final BoardLayout layout;
 
   CardFinder(GamePainter painter) : layout = painter.layout;
 
@@ -386,21 +390,21 @@ class CardFinder<ST extends Slot> {
   }
 }
 
-typedef _ExtendedSlotF = void Function(
+typedef ExtendedSlotF = void Function(
     ExtendedSlot slot, double cardHeight, ui.Rect maxSpace);
 
-typedef _NormalSlotF = void Function(NormalSlot slot, ui.Rect space);
+typedef NormalSlotF = void Function(NormalSlot slot, ui.Rect space);
 
-typedef _SpaceF = void Function(
+typedef SpaceF = void Function(
     Slot slot, Card? card, ui.Rect space, bool showHidden, Card? hidden);
 
-class _BoardLayout {
+class BoardLayout {
   final ui.Rect cardViewport;
 
-  _BoardLayout(this.cardViewport);
+  BoardLayout(this.cardViewport);
 
   void visitSlots(
-      GameController controller, _NormalSlotF normal, _ExtendedSlotF extended) {
+      GameController controller, NormalSlotF normal, ExtendedSlotF extended) {
     final game = controller.game;
     final double height = controller.screenSize.height;
     final cardWidth = controller.cardWidth;
@@ -441,7 +445,7 @@ class _BoardLayout {
     }
   }
 
-  void visitCards(GameController controller, _SpaceF spaceF, [Board? search]) {
+  void visitCards(GameController controller, SpaceF spaceF, [Board? search]) {
     visitSlots(controller, (NormalSlot slot, ui.Rect space) {
       if (search != null) {
         slot = search.slotFromNumber(slot.slotNumber) as NormalSlot;

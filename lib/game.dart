@@ -475,7 +475,8 @@ class SearchCardList implements CardList {
   void moveStackTo(int numCards, covariant SearchCardList dest) {
     assert(disableDebug || dest != this);
     assert(disableDebug || numCards > 0);
-    assert(disableDebug || numCards <= this.numCards, '$numCards > ${this.numCards}');
+    assert(disableDebug || numCards <= this.numCards,
+        '$numCards > ${this.numCards}');
     int addr = _offset + 1; // Address of _top;
     int top = _raw[addr];
     for (int i = 0; i < numCards; i++) {
@@ -492,8 +493,8 @@ class SearchCardList implements CardList {
   }
 
   bool _listOK() {
-    assert(
-        disableDebug || numCards == fromTop.length, '$numCards, ${fromTop.length}');
+    assert(disableDebug || numCards == fromTop.length,
+        '$numCards, ${fromTop.length}');
     return true;
   }
 }

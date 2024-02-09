@@ -30,7 +30,8 @@ const bool disableDebug = false;
 /// fashioned way.
 const applicationVersion = '0.1';
 final Uri applicationWebAddress = Uri.parse('https://aisleriot.jovial.com');
-final Uri applicationIssueAddress = Uri.parse('https://github.com/zathras/aisleriot/issues');
+final Uri applicationIssueAddress =
+    Uri.parse('https://github.com/zathras/aisleriot/issues');
 
 const nonWarranty = '''
  This program is distributed in the hope that it will be useful,

@@ -19,7 +19,6 @@
 
 import 'dart:async';
 import 'dart:collection';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'dart:io' show Platform;
 
@@ -34,7 +33,6 @@ import 'constants.dart';
 import 'graphics.dart';
 import 'game.dart';
 import 'controller.dart';
-
 
 abstract class Solver<ST extends Slot> {
   void stop();
@@ -58,8 +56,7 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
   static final int maxArrangements = (_isDesktop()) ? 4000000 : 40000000;
   static final List<double> solveTimes = CircularBuffer(Float64List(20000));
 
-  SolutionSearcher(this.controller)
-      : board = controller.game.board;
+  SolutionSearcher(this.controller) : board = controller.game.board;
 
   @override
   void stop() {
@@ -74,7 +71,7 @@ class SolutionSearcher<ST extends Slot> extends Solver<ST> {
     final initial = scratch.slotData;
     final external = scratch.toExternal();
     final q = PriorityQueue<SearchSlotData>(
-            (a, b) => b.goodness.compareTo(a.goodness));
+        (a, b) => b.goodness.compareTo(a.goodness));
     final seen = HashSet<List<int>>(
         equals: quiver.listsEqual, hashCode: quiver.hashObjects);
     scratch.doAllAutomaticMoves();
@@ -222,7 +219,7 @@ class Solution<ST extends Slot> extends Solver<ST> {
             (board.makeSearchBoard()..canonicalize()).slotData.raw,
             scratch.slotData.raw));
     assert(disableDebug ||
-            () {
+        () {
           slotMap.fillRange(0, slotMap.length, -1);
           return true;
         }());
@@ -272,8 +269,10 @@ class Solution<ST extends Slot> extends Solver<ST> {
     assert(disableDebug ||
         board.canDrop(
             FoundCard(srcSlot, step.viaNumCards, bottom, ui.Rect.zero), dest));
-    controller.inFlight = GameAnimation<ST>(controller, [move],
-            () => controller.doAutomaticMoves(() => _moveCompleted(controller, true)));
+    controller.inFlight = GameAnimation<ST>(
+        controller,
+        [move],
+        () => controller
+            .doAutomaticMoves(() => _moveCompleted(controller, true)));
   }
 }
-
